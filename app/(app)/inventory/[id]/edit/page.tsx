@@ -20,6 +20,8 @@ import {
 import { titleCase } from "@/lib/utils";
 import type { Enums, Tables } from "@/types/database";
 
+export const runtime = "edge";
+
 const STATUS: Enums<"inventory_status">[] = [
   "pending",
   "bought",

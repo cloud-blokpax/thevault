@@ -4,6 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { formatCurrency, formatDate } from "@/lib/utils";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function TripsPage() {

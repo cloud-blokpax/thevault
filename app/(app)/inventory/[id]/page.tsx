@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatCurrency, formatDate, formatDateTime, titleCase } from "@/lib/utils";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function InventoryDetailPage({ params }: { params: { id: string } }) {

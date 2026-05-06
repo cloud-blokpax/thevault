@@ -5,6 +5,7 @@ import { formatCurrency, formatDate, titleCase } from "@/lib/utils";
 import { StatusBadge } from "@/components/ui/status-badge";
 import type { Enums } from "@/types/database";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 const STATUSES: Enums<"inventory_status">[] = [
