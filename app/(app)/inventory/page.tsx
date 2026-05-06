@@ -18,6 +18,8 @@ import { StatusBadge } from "@/components/ui/status-badge";
 import { formatCurrency, titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
+export const runtime = "edge";
+
 type SortKey = "updated_at" | "name" | "buy_cost_local" | "listed_price";
 
 type Row = {

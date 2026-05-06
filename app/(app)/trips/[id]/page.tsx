@@ -6,6 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatCurrency, formatDate, titleCase } from "@/lib/utils";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function TripDetailPage({ params }: { params: { id: string } }) {

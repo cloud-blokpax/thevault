@@ -18,6 +18,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
+export const runtime = "edge";
+
 const CURRENCIES: Enums<"currency_code">[] = ["USD", "EUR", "GBP", "JPY", "CAD"];
 
 type Breakdown = Record<string, number | string | null>;

@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
 
+export const runtime = "edge";
 export const dynamic = "force-dynamic";
 
 export default async function SettingsPage() {
