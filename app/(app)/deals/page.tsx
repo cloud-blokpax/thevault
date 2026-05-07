@@ -1,7 +1,6 @@
 "use client";
 
 import { Suspense, useEffect, useMemo, useState } from "react";
-import Image from "next/image";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
@@ -19,6 +18,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
+import { CardImage } from "@/components/ui/card-image";
 import { CardSearchInput, type CardHit } from "@/components/card-search-input";
 import { cn, formatCurrency, titleCase } from "@/lib/utils";
 import {
@@ -489,19 +489,7 @@ function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
     >
       <div className="flex gap-3 p-3">
         <div className="shrink-0">
-          {deal.image_url ? (
-            <Image
-              src={deal.image_url}
-              alt=""
-              width={80}
-              height={112}
-              loading="lazy"
-              unoptimized
-              className="h-[112px] w-20 rounded border bg-muted object-contain"
-            />
-          ) : (
-            <div className="h-[112px] w-20 rounded border bg-muted" aria-hidden />
-          )}
+          <CardImage src={deal.image_url} alt="" width={80} height={112} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
           <div>
@@ -625,18 +613,7 @@ function DealDetailContent({ deal }: { deal: Deal }) {
 
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="shrink-0">
-          {deal.image_url ? (
-            <Image
-              src={deal.image_url}
-              alt={deal.name}
-              width={200}
-              height={280}
-              unoptimized
-              className="rounded border bg-muted object-contain"
-            />
-          ) : (
-            <div className="h-[280px] w-[200px] rounded border bg-muted" aria-hidden />
-          )}
+          <CardImage src={deal.image_url} alt={deal.name} width={200} height={280} />
         </div>
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">

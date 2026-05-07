@@ -1,9 +1,9 @@
 import Link from "next/link";
-import Image from "next/image";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { CardImage } from "@/components/ui/card-image";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { formatCurrency, formatDate, formatDateTime, titleCase } from "@/lib/utils";
 
@@ -128,24 +128,13 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
       <Card>
         <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
           <div className="flex shrink-0 justify-center sm:justify-start">
-            {card?.image_url ? (
-              <Image
-                src={card.image_url}
-                alt={card.name}
-                width={240}
-                height={336}
-                unoptimized
-                className="rounded-md border bg-muted object-contain"
-                style={{ width: 240, height: "auto" }}
-              />
-            ) : (
-              <div
-                className="flex items-center justify-center rounded-md border bg-muted p-3 text-center text-sm font-medium text-muted-foreground"
-                style={{ width: 240, height: 336 }}
-              >
-                {card?.name ?? "No image"}
-              </div>
-            )}
+            <CardImage
+              src={card?.image_url}
+              alt={card?.name ?? "Card image"}
+              width={240}
+              height={336}
+              fallbackText={card?.name ?? "No image"}
+            />
           </div>
           {pills.length > 0 && (
             <div className="min-w-0 flex-1">

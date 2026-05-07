@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
 import { useQuery } from "@tanstack/react-query";
 import { Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
+import { CardImage } from "@/components/ui/card-image";
 import { titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
@@ -136,23 +136,13 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
                       (i === activeIndex ? "bg-accent" : "hover:bg-accent/60")
                     }
                   >
-                    {c.image_url ? (
-                      <Image
-                        src={c.image_url}
-                        alt=""
-                        width={THUMB_W}
-                        height={THUMB_H}
-                        loading="lazy"
-                        unoptimized
-                        className="shrink-0 rounded border bg-muted object-contain"
-                      />
-                    ) : (
-                      <div
-                        aria-hidden
-                        className="shrink-0 rounded border bg-muted"
-                        style={{ width: THUMB_W, height: THUMB_H }}
-                      />
-                    )}
+                    <CardImage
+                      src={c.image_url}
+                      alt=""
+                      width={THUMB_W}
+                      height={THUMB_H}
+                      fallbackText=""
+                    />
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{c.name}</p>
                       <p className="truncate text-xs text-muted-foreground">
