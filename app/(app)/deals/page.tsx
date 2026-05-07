@@ -5,7 +5,16 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, Plus, ShoppingCart, Target, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ExternalLink,
+  Flag,
+  Info,
+  Plus,
+  ShoppingCart,
+  Target,
+  X,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,12 +29,14 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { CardImage } from "@/components/ui/card-image";
 import { CardSearchInput, type CardHit } from "@/components/card-search-input";
-import { cn, formatCurrency, titleCase } from "@/lib/utils";
+import { cn, formatCurrency, formatDateTime, titleCase } from "@/lib/utils";
 import {
   type BuyCategory,
   type Deal,
   type DealConfidence,
   type EbayListing,
+  type PriceQuality,
+  type ProvenanceRow,
   POTENTIAL_DEALS_SELECT,
   gameLabel,
   num,
@@ -38,15 +49,16 @@ type Confidence = DealConfidence;
 type GameFilter = "all" | "pokemon" | "one_piece";
 type TypeFilter = "all" | "sealed" | "singles";
 type SortKey =
-  | "profit_desc"
-  | "margin_desc"
+  | "profit_floor_desc"
+  | "profit_trend_desc"
+  | "margin_floor_desc"
   | "buy_asc"
-  | "buy_desc"
-  | "profit_aggressive_desc";
-
+  | "buy_desc";
 
 const PROFIT_SNAPS = [0, 5, 25, 100, 500];
 const MARGIN_SNAPS = [0, 10, 20, 30, 50, 100, 200, 500];
+
+const TRANSPARENCY_BANNER_KEY = "deals.transparencyBanner.dismissed";
 
 function snap(value: number, snaps: number[]): number {
   let best = snaps[0];
@@ -80,6 +92,7 @@ type CategoryDefaults = {
   minBuy: string;
   maxBuy: string;
   showWarnings: boolean;
+  includeTrendOnly: boolean;
   sort: SortKey;
   confidence: Confidence[];
 };
@@ -93,7 +106,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "200",
         maxBuy: "",
         showWarnings: false,
-        sort: "profit_desc",
+        includeTrendOnly: false,
+        sort: "profit_floor_desc",
         confidence: ["high", "medium", "low"],
       };
     case "sealed-other":
@@ -103,7 +117,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "",
         maxBuy: "200",
         showWarnings: false,
-        sort: "profit_desc",
+        includeTrendOnly: false,
+        sort: "profit_floor_desc",
         confidence: ["high", "medium", "low"],
       };
     case "premium-singles":
@@ -113,7 +128,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "50",
         maxBuy: "",
         showWarnings: false,
-        sort: "profit_desc",
+        includeTrendOnly: false,
+        sort: "profit_floor_desc",
         confidence: ["high", "medium", "low"],
       };
     case "microflips":
@@ -123,7 +139,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "",
         maxBuy: "50",
         showWarnings: false,
-        sort: "margin_desc",
+        includeTrendOnly: false,
+        sort: "margin_floor_desc",
         confidence: ["high", "medium", "low"],
       };
     case "verify":
@@ -133,7 +150,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "",
         maxBuy: "",
         showWarnings: true,
-        sort: "profit_aggressive_desc",
+        includeTrendOnly: true,
+        sort: "profit_trend_desc",
         confidence: ["high", "medium", "low"],
       };
     case "top":
@@ -144,7 +162,8 @@ function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
         minBuy: "",
         maxBuy: "",
         showWarnings: false,
-        sort: "profit_desc",
+        includeTrendOnly: false,
+        sort: "profit_floor_desc",
         confidence: ["high", "medium"],
       };
   }
@@ -171,6 +190,7 @@ function DealsPageInner() {
   const [maxBuy, setMaxBuy] = useState(initial.maxBuy);
   const [confidence, setConfidence] = useState<Confidence[]>(initial.confidence);
   const [showWarnings, setShowWarnings] = useState(initial.showWarnings);
+  const [includeTrendOnly, setIncludeTrendOnly] = useState(initial.includeTrendOnly);
   const [sort, setSort] = useState<SortKey>(initial.sort);
 
   const [debouncedMinBuy, setDebouncedMinBuy] = useState(minBuy);
@@ -195,9 +215,21 @@ function DealsPageInner() {
       maxBuy: debouncedMaxBuy,
       confidence: [...confidence].sort().join(","),
       showWarnings,
+      includeTrendOnly,
       sort,
     }),
-    [game, type, minMargin, minProfit, debouncedMinBuy, debouncedMaxBuy, confidence, showWarnings, sort],
+    [
+      game,
+      type,
+      minMargin,
+      minProfit,
+      debouncedMinBuy,
+      debouncedMaxBuy,
+      confidence,
+      showWarnings,
+      includeTrendOnly,
+      sort,
+    ],
   );
 
   const dealsQuery = useQuery<Deal[]>({
@@ -207,15 +239,26 @@ function DealsPageInner() {
       let q = supabase
         .from("potential_deals" as never)
         .select(POTENTIAL_DEALS_SELECT)
-        .gt("profit_eur", 0)
         .limit(50);
+
+      if (includeTrendOnly) {
+        q = q.gt("profit_eur", 0);
+      } else {
+        q = q.gt("profit_at_eu_low_eur", 0);
+      }
 
       if (!showWarnings) q = q.eq("variant_spread_warning", false);
       if (game !== "all") q = q.eq("game", game);
       if (type === "sealed") q = q.eq("is_sealed", true);
       if (type === "singles") q = q.eq("is_sealed", false);
-      if (minMargin > 0) q = q.gte("margin_pct", minMargin);
-      if (minProfit > 0) q = q.gte("profit_eur", minProfit);
+      if (minMargin > 0) {
+        if (includeTrendOnly) q = q.gte("margin_pct", minMargin);
+        else q = q.gte("margin_pct_at_eu_low", minMargin);
+      }
+      if (minProfit > 0) {
+        if (includeTrendOnly) q = q.gte("profit_eur", minProfit);
+        else q = q.gte("profit_at_eu_low_eur", minProfit);
+      }
       const minB = Number(debouncedMinBuy);
       if (debouncedMinBuy && !Number.isNaN(minB) && minB > 0) q = q.gte("us_buy_usd", minB);
       const maxB = Number(debouncedMaxBuy);
@@ -224,8 +267,11 @@ function DealsPageInner() {
         q = q.in("match_confidence", confidence);
       }
       switch (sort) {
-        case "margin_desc":
-          q = q.order("margin_pct", { ascending: false });
+        case "profit_trend_desc":
+          q = q.order("profit_eur", { ascending: false });
+          break;
+        case "margin_floor_desc":
+          q = q.order("margin_pct_at_eu_low", { ascending: false, nullsFirst: false });
           break;
         case "buy_asc":
           q = q.order("us_buy_usd", { ascending: true });
@@ -233,11 +279,8 @@ function DealsPageInner() {
         case "buy_desc":
           q = q.order("us_buy_usd", { ascending: false });
           break;
-        case "profit_aggressive_desc":
-          q = q.order("profit_aggressive_eur", { ascending: false });
-          break;
         default:
-          q = q.order("profit_eur", { ascending: false });
+          q = q.order("profit_at_eu_low_eur", { ascending: false, nullsFirst: false });
       }
 
       const { data, error } = (await q) as unknown as { data: Deal[] | null; error: { message: string } | null };
@@ -247,6 +290,13 @@ function DealsPageInner() {
   });
 
   const [openDeal, setOpenDeal] = useState<Deal | null>(null);
+  const [provenanceCardId, setProvenanceCardId] = useState<string | null>(null);
+  const [provenanceTitle, setProvenanceTitle] = useState<string>("");
+
+  function showProvenance(deal: Deal) {
+    setProvenanceCardId(deal.card_id);
+    setProvenanceTitle(deal.name);
+  }
 
   const deals = dealsQuery.data ?? [];
 
@@ -262,6 +312,8 @@ function DealsPageInner() {
           US→EU arbitrage opportunities, refreshed nightly. Profit estimates apply your default margins, travel, and FX.
         </p>
       </div>
+
+      <TransparencyBanner />
 
       <QuickEvaluator />
 
@@ -354,15 +406,27 @@ function DealsPageInner() {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="profit_desc">Profit (high→low)</SelectItem>
-                <SelectItem value="profit_aggressive_desc">Aggressive profit</SelectItem>
-                <SelectItem value="margin_desc">Margin (high→low)</SelectItem>
+                <SelectItem value="profit_floor_desc">Floor profit (high→low)</SelectItem>
+                <SelectItem value="profit_trend_desc">Trend profit (high→low)</SelectItem>
+                <SelectItem value="margin_floor_desc">Floor margin (high→low)</SelectItem>
                 <SelectItem value="buy_asc">Buy (low→high)</SelectItem>
                 <SelectItem value="buy_desc">Buy (high→low)</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          <div className="flex items-end">
+          <div className="flex flex-col gap-1.5">
+            <label className="flex cursor-pointer items-center gap-2 text-xs">
+              <input
+                type="checkbox"
+                checked={includeTrendOnly}
+                onChange={(e) => setIncludeTrendOnly(e.target.checked)}
+                className="h-4 w-4"
+              />
+              Include trend-based deals
+              <span title="Optimistic plays where Cardmarket trend says profit but lowest listings don't agree.">
+                <Info className="h-3 w-3 text-muted-foreground" />
+              </span>
+            </label>
             <label className="flex cursor-pointer items-center gap-2 text-xs">
               <input
                 type="checkbox"
@@ -380,6 +444,11 @@ function DealsPageInner() {
         {dealsQuery.isLoading
           ? "Loading…"
           : `Showing ${deals.length} deal${deals.length === 1 ? "" : "s"}`}
+        {!includeTrendOnly && !dealsQuery.isLoading && (
+          <span className="ml-2 text-muted-foreground/80">
+            · floor-positive only
+          </span>
+        )}
       </p>
 
       {dealsQuery.error && (
@@ -399,11 +468,62 @@ function DealsPageInner() {
           </Card>
         )}
         {deals.map((deal) => (
-          <DealRow key={deal.card_id} deal={deal} onOpen={() => setOpenDeal(deal)} />
+          <DealRow
+            key={deal.card_id}
+            deal={deal}
+            onOpen={() => setOpenDeal(deal)}
+            onShowProvenance={() => showProvenance(deal)}
+          />
         ))}
       </div>
 
-      <DealDetailDialog deal={openDeal} onClose={() => setOpenDeal(null)} />
+      <DealDetailDialog
+        deal={openDeal}
+        onClose={() => setOpenDeal(null)}
+        onShowProvenance={showProvenance}
+      />
+      <ProvenanceDialog
+        cardId={provenanceCardId}
+        title={provenanceTitle}
+        onClose={() => setProvenanceCardId(null)}
+      />
+    </div>
+  );
+}
+
+function TransparencyBanner() {
+  const [hidden, setHidden] = useState(true);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const dismissed = window.sessionStorage.getItem(TRANSPARENCY_BANNER_KEY);
+    setHidden(dismissed === "1");
+  }, []);
+  if (hidden) return null;
+  function dismiss() {
+    if (typeof window !== "undefined") {
+      window.sessionStorage.setItem(TRANSPARENCY_BANNER_KEY, "1");
+    }
+    setHidden(true);
+  }
+  return (
+    <div className="relative rounded-md border border-blue-200 bg-blue-50 px-4 py-3 pr-9 text-xs text-blue-900 dark:border-blue-900 dark:bg-blue-950/40 dark:text-blue-100">
+      <p className="flex items-center gap-1.5 font-semibold">
+        <Info className="h-3.5 w-3.5 shrink-0" />
+        How we calculate deals
+      </p>
+      <p className="mt-1 leading-relaxed">
+        US prices come from TCGplayer&apos;s daily algorithmic &ldquo;market price&rdquo;
+        (not verified sales). EU prices come from Cardmarket&apos;s &ldquo;Price Trend&rdquo;
+        and lowest listing. Click any price to see the source.
+      </p>
+      <button
+        type="button"
+        onClick={dismiss}
+        className="absolute right-2 top-2 rounded-md p-1 text-blue-900/70 hover:bg-blue-100 dark:text-blue-100/70 dark:hover:bg-blue-900/40"
+        aria-label="Dismiss"
+      >
+        <X className="h-3.5 w-3.5" />
+      </button>
     </div>
   );
 }
@@ -453,24 +573,90 @@ function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
   );
 }
 
-function marginColorClass(marginPct: number): string {
-  if (marginPct >= 50) return "text-amber-500 dark:text-amber-400";
-  if (marginPct >= 10) return "text-emerald-600 dark:text-emerald-500";
-  return "text-muted-foreground";
+function priceQualityCopy(
+  q: PriceQuality | null,
+  euLow: number,
+  euTrend: number,
+): { kind: "none" | "trend" | "us" | "trend_only"; text: string } {
+  if (q === "trend_above_listings") {
+    const ratio = euLow > 0 ? euTrend / euLow : null;
+    const ratioText = ratio !== null ? `${ratio.toFixed(1)}× the lowest listing` : "above the lowest listing";
+    return { kind: "trend", text: `EU trend is ${ratioText} — verify` };
+  }
+  if (q === "us_market_below_low") {
+    return { kind: "us", text: "US market price below lowest listing — TCGplayer may be stale" };
+  }
+  return { kind: "none", text: "" };
 }
 
-function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
+function ClickablePrice({
+  primary,
+  secondary,
+  onClick,
+  className,
+}: {
+  primary: string;
+  secondary?: string | null;
+  onClick: (e: React.MouseEvent) => void;
+  className?: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick(e);
+      }}
+      className={cn(
+        "group inline-flex items-baseline gap-1 rounded text-left tabular-nums hover:underline focus:outline-none focus-visible:ring-1 focus-visible:ring-ring",
+        className,
+      )}
+      title="Where this number comes from"
+    >
+      <span className="font-semibold">{primary}</span>
+      <Info className="h-3 w-3 self-center text-muted-foreground/70 group-hover:text-foreground" />
+      {secondary && (
+        <span className="text-xs font-normal text-muted-foreground">({secondary})</span>
+      )}
+    </button>
+  );
+}
+
+function DealRow({
+  deal,
+  onOpen,
+  onShowProvenance,
+}: {
+  deal: Deal;
+  onOpen: () => void;
+  onShowProvenance: () => void;
+}) {
   const buyUsd = num(deal.us_buy_usd);
   const buyEur = deal.us_buy_eur != null ? num(deal.us_buy_eur) : null;
-  const sellEur = num(deal.eu_sell_eur);
-  const sellUsd = deal.eu_sell_usd != null ? num(deal.eu_sell_usd) : null;
-  const profitEur = num(deal.profit_eur);
-  const profitUsd = deal.profit_usd != null ? num(deal.profit_usd) : null;
-  const marginPct = num(deal.margin_pct);
+
+  const euLow = deal.eu_low_min != null ? num(deal.eu_low_min) : 0;
+  const euTrend = num(deal.eu_sell_eur);
+  const hasEuLow = euLow > 0;
+
+  const profitFloor =
+    deal.profit_at_eu_low_eur != null ? num(deal.profit_at_eu_low_eur) : null;
+  const marginFloor =
+    deal.margin_pct_at_eu_low != null ? num(deal.margin_pct_at_eu_low) : null;
+  const profitTrend = num(deal.profit_eur);
+  const marginTrend = num(deal.margin_pct);
+
+  const showBoth =
+    deal.price_quality === "trend_above_listings" ||
+    (hasEuLow && euTrend > 0 && euTrend / Math.max(euLow, 0.01) > 1.5);
+  const flag = priceQualityCopy(deal.price_quality, euLow, euTrend);
+
   const ebayCount = deal.ebay_active_count != null ? num(deal.ebay_active_count) : 0;
   const ebayBest = deal.ebay_best_total_usd != null ? num(deal.ebay_best_total_usd) : null;
   const ebayUrl = deal.ebay_best_listing_url;
   const hasEbay = ebayCount > 0 && !!ebayUrl;
+
+  const headlineProfit = profitFloor != null ? profitFloor : profitTrend;
+  const isFloorPositive = profitFloor != null && profitFloor > 0;
 
   return (
     <div
@@ -520,40 +706,96 @@ function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
           </div>
 
           <div className="border-t pt-2">
-            <PriceLine
-              label="US"
-              primary={formatCurrency(buyUsd, "USD")}
-              secondary={buyEur != null ? formatCurrency(buyEur, "EUR") : null}
-            />
-            <PriceLine
-              label="EU"
-              primary={formatCurrency(sellEur, "EUR")}
-              secondary={sellUsd != null ? formatCurrency(sellUsd, "USD") : null}
-            />
+            <p className="flex items-baseline gap-x-2 text-sm">
+              <span className="w-6 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                US
+              </span>
+              <ClickablePrice
+                primary={formatCurrency(buyUsd, "USD")}
+                secondary={buyEur != null ? formatCurrency(buyEur, "EUR") : null}
+                onClick={onShowProvenance}
+              />
+            </p>
+            <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 text-sm">
+              <span className="w-6 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                EU
+              </span>
+              {hasEuLow && (
+                <ClickablePrice
+                  primary={formatCurrency(euLow, "EUR")}
+                  onClick={onShowProvenance}
+                />
+              )}
+              {hasEuLow && (
+                <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                  floor
+                </span>
+              )}
+              {showBoth && (
+                <>
+                  <span className="text-muted-foreground">·</span>
+                  <ClickablePrice
+                    primary={formatCurrency(euTrend, "EUR")}
+                    onClick={onShowProvenance}
+                    className="text-muted-foreground"
+                  />
+                  <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
+                    trend
+                  </span>
+                </>
+              )}
+              {!hasEuLow && (
+                <ClickablePrice
+                  primary={formatCurrency(euTrend, "EUR")}
+                  onClick={onShowProvenance}
+                />
+              )}
+            </p>
           </div>
 
           <div className="border-t pt-2">
-            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-base">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Arbitrage
-              </span>
-              <span className="font-bold tabular-nums text-emerald-600 dark:text-emerald-500">
-                +{formatCurrency(profitEur, "EUR")}
-              </span>
-              {profitUsd != null && (
-                <span className="text-sm font-semibold tabular-nums text-emerald-600/80 dark:text-emerald-500/80">
-                  · +{formatCurrency(profitUsd, "USD")}
-                </span>
-              )}
-            </div>
-            <div className="flex items-baseline gap-x-2 text-xs">
-              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                Margin
-              </span>
-              <span className={cn("font-semibold tabular-nums", marginColorClass(marginPct))}>
-                {marginPct.toFixed(1)}%
-              </span>
-            </div>
+            {showBoth && profitFloor != null ? (
+              <div className="space-y-0.5">
+                <ProfitLine
+                  label="Profit at floor"
+                  value={profitFloor}
+                  marginPct={marginFloor}
+                  emphasis
+                />
+                <ProfitLine
+                  label="Profit at trend"
+                  value={profitTrend}
+                  marginPct={marginTrend}
+                  emphasis={false}
+                  muted
+                />
+              </div>
+            ) : (
+              <ProfitLine
+                label={isFloorPositive ? "Profit" : "Trend profit"}
+                value={headlineProfit}
+                marginPct={isFloorPositive ? marginFloor : marginTrend}
+                emphasis
+              />
+            )}
+            {flag.kind === "trend" && (
+              <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                <Flag className="h-3 w-3" />
+                {flag.text}
+              </p>
+            )}
+            {flag.kind === "us" && (
+              <p className="mt-1 flex items-center gap-1 text-[10px] text-muted-foreground">
+                <Info className="h-3 w-3" />
+                {flag.text}
+              </p>
+            )}
+            {!isFloorPositive && profitFloor != null && (
+              <p className="mt-1 flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
+                <Flag className="h-3 w-3" />
+                Speculative — depends on EU trend holding
+              </p>
+            )}
           </div>
 
           {hasEbay ? (
@@ -588,23 +830,48 @@ function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
   );
 }
 
-function PriceLine({
+function ProfitLine({
   label,
-  primary,
-  secondary,
+  value,
+  marginPct,
+  emphasis,
+  muted,
 }: {
   label: string;
-  primary: string;
-  secondary: string | null;
+  value: number | null;
+  marginPct: number | null;
+  emphasis: boolean;
+  muted?: boolean;
 }) {
+  const positive = value != null && value >= 0;
+  const colorClass = muted
+    ? "text-muted-foreground"
+    : positive
+      ? "text-emerald-600 dark:text-emerald-500"
+      : "text-destructive";
   return (
-    <p className="flex items-baseline gap-x-2 text-sm tabular-nums">
-      <span className="w-6 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+    <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+      <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
         {label}
       </span>
-      <span className="font-semibold">{primary}</span>
-      {secondary && <span className="text-xs text-muted-foreground">({secondary})</span>}
-    </p>
+      <span
+        className={cn(
+          "tabular-nums",
+          colorClass,
+          emphasis ? "text-base font-bold" : "text-sm font-semibold",
+        )}
+      >
+        {value == null
+          ? "—"
+          : `${value >= 0 ? "+" : ""}${formatCurrency(value, "EUR")}`}
+      </span>
+      {marginPct != null && (
+        <span className={cn("text-xs tabular-nums", colorClass)}>
+          ({marginPct >= 0 ? "+" : ""}
+          {marginPct.toFixed(0)}%)
+        </span>
+      )}
+    </div>
   );
 }
 
@@ -612,14 +879,22 @@ function formatStrikeUsd(value: number): string {
   return formatCurrency(value, "USD", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
-function DealDetailDialog({ deal, onClose }: { deal: Deal | null; onClose: () => void }) {
+function DealDetailDialog({
+  deal,
+  onClose,
+  onShowProvenance,
+}: {
+  deal: Deal | null;
+  onClose: () => void;
+  onShowProvenance: (deal: Deal) => void;
+}) {
   const open = deal !== null;
   return (
     <Dialog.Root open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border bg-background p-6 shadow-xl focus:outline-none">
-          {deal && <DealDetailContent deal={deal} />}
+          {deal && <DealDetailContent deal={deal} onShowProvenance={() => onShowProvenance(deal)} />}
           <Dialog.Close className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent">
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
@@ -630,12 +905,22 @@ function DealDetailDialog({ deal, onClose }: { deal: Deal | null; onClose: () =>
   );
 }
 
-function DealDetailContent({ deal }: { deal: Deal }) {
+function DealDetailContent({
+  deal,
+  onShowProvenance,
+}: {
+  deal: Deal;
+  onShowProvenance: () => void;
+}) {
   const buyUsd = num(deal.us_buy_usd);
   const sellEur = num(deal.eu_sell_eur);
+  const euLow = deal.eu_low_min != null ? num(deal.eu_low_min) : 0;
   const floorEur = num(deal.floor_eur);
-  const profitEur = num(deal.profit_eur);
-  const marginPct = num(deal.margin_pct);
+  const profitFloor = deal.profit_at_eu_low_eur != null ? num(deal.profit_at_eu_low_eur) : null;
+  const profitTrend = num(deal.profit_eur);
+  const marginFloor =
+    deal.margin_pct_at_eu_low != null ? num(deal.margin_pct_at_eu_low) : null;
+  const marginTrend = num(deal.margin_pct);
 
   const tcgUrl = `https://www.tcgplayer.com/search/all/product?productLineName=&q=${encodeURIComponent(deal.name)}`;
   const cmUrl = `https://www.cardmarket.com/en/${deal.game === "one_piece" ? "OnePiece" : "Pokemon"}/Products/Search?searchString=${encodeURIComponent(deal.name)}`;
@@ -681,6 +966,50 @@ function DealDetailContent({ deal }: { deal: Deal }) {
       </div>
 
       <div className="rounded-md border bg-muted/30 p-3">
+        <div className="mb-2 flex items-center justify-between">
+          <p className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Profit comparison
+          </p>
+          <button
+            type="button"
+            onClick={onShowProvenance}
+            className="text-[10px] font-medium text-primary hover:underline"
+          >
+            View source data →
+          </button>
+        </div>
+        <dl className="space-y-1 text-sm">
+          <ProfitDtRow
+            label="At floor (EU lowest listing)"
+            value={profitFloor}
+            marginPct={marginFloor}
+            emphasis
+          />
+          <ProfitDtRow
+            label="At trend (Cardmarket Price Trend)"
+            value={profitTrend}
+            marginPct={marginTrend}
+            emphasis={false}
+          />
+        </dl>
+        {deal.price_quality === "trend_above_listings" && euLow > 0 && (
+          <p className="mt-2 flex items-start gap-1.5 rounded-md border border-amber-200 bg-amber-50/60 p-2 text-[11px] text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+            <Flag className="mt-0.5 h-3 w-3 shrink-0" />
+            Cardmarket trend ({formatCurrency(sellEur, "EUR")}) is{" "}
+            {(sellEur / euLow).toFixed(1)}× the lowest listing ({formatCurrency(euLow, "EUR")}).
+            The floor number is the realistic worst case; the trend is upside that depends on
+            recent-sales history holding.
+          </p>
+        )}
+        {deal.price_quality === "us_market_below_low" && (
+          <p className="mt-2 flex items-start gap-1.5 rounded-md border bg-muted/40 p-2 text-[11px] text-muted-foreground">
+            <Info className="mt-0.5 h-3 w-3 shrink-0" />
+            US market price is below the lowest listing — TCGplayer&apos;s aggregate may be stale.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-md border bg-muted/30 p-3">
         <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Price ladder
         </p>
@@ -697,7 +1026,7 @@ function DealDetailContent({ deal }: { deal: Deal }) {
           <div>
             <p className="text-xs font-semibold">EU (EUR)</p>
             <PriceLadder
-              min={num(deal.eu_market_min)}
+              min={euLow > 0 ? euLow : num(deal.eu_market_min)}
               avg={num(deal.eu_market_avg)}
               max={num(deal.eu_market_max)}
               currency="EUR"
@@ -715,8 +1044,6 @@ function DealDetailContent({ deal }: { deal: Deal }) {
 
       <StrikeTable deal={deal} />
 
-      <ProfitTable deal={deal} />
-
       <div className="rounded-md border bg-muted/30 p-3">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Floor breakdown
@@ -725,13 +1052,28 @@ function DealDetailContent({ deal }: { deal: Deal }) {
           ({formatCurrency(buyUsd, "USD")} buy + travel) × FX × (1 + margins) ={" "}
           <span className="font-semibold">{formatCurrency(floorEur, "EUR")}</span> floor
         </p>
-        <p className="mt-2 text-sm">
-          Sell at {formatCurrency(sellEur, "EUR")} → profit{" "}
-          <span className="font-semibold text-emerald-600 dark:text-emerald-500">
-            +{formatCurrency(profitEur, "EUR")}
-          </span>{" "}
-          ({marginPct.toFixed(1)}%)
-        </p>
+        {profitFloor != null && (
+          <p className="mt-2 text-sm">
+            Sell at {formatCurrency(euLow > 0 ? euLow : sellEur, "EUR")} → profit{" "}
+            <span
+              className={cn(
+                "font-semibold",
+                profitFloor >= 0
+                  ? "text-emerald-600 dark:text-emerald-500"
+                  : "text-destructive",
+              )}
+            >
+              {profitFloor >= 0 ? "+" : ""}
+              {formatCurrency(profitFloor, "EUR")}
+            </span>
+            {marginFloor != null && (
+              <>
+                {" "}
+                ({marginFloor.toFixed(1)}%)
+              </>
+            )}
+          </p>
+        )}
       </div>
 
       <EbayListingsSection cardId={deal.card_id} />
@@ -739,6 +1081,10 @@ function DealDetailContent({ deal }: { deal: Deal }) {
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm">
           <Link href={inventoryHref}>Add to inventory</Link>
+        </Button>
+        <Button size="sm" variant="outline" onClick={onShowProvenance}>
+          <Info className="mr-1 h-3.5 w-3.5" />
+          Source data
         </Button>
         <Button asChild size="sm" variant="outline">
           <a href={tcgUrl} target="_blank" rel="noopener noreferrer">
@@ -760,21 +1106,27 @@ function DealDetailContent({ deal }: { deal: Deal }) {
 }
 
 function StrikeTable({ deal }: { deal: Deal }) {
+  const floor = deal.strike_at_eu_low_usd;
   const conservative = deal.strike_conservative_usd;
   const realistic = deal.strike_realistic_usd;
   const aggressive = deal.strike_aggressive_usd;
-  if (conservative == null && realistic == null && aggressive == null) return null;
+  if (floor == null && conservative == null && realistic == null && aggressive == null) return null;
   return (
     <div className="rounded-md border bg-amber-50/40 p-3 dark:bg-amber-950/20">
       <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
         <Target className="h-3.5 w-3.5" />
         Price strike (max USD to pay)
       </p>
-      <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
-        <StrikeRow label="Conservative" sub="sell at EU min" value={conservative} />
-        <StrikeRow label="Realistic" sub="sell at EU avg" value={realistic} />
-        <StrikeRow label="Aggressive" sub="sell at EU max" value={aggressive} />
+      <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
+        <StrikeRow label="Floor" sub="EU lowest listing" value={floor} highlight />
+        <StrikeRow label="Conservative" sub="EU trend min" value={conservative} />
+        <StrikeRow label="Realistic" sub="EU trend avg" value={realistic} />
+        <StrikeRow label="Aggressive" sub="EU trend max" value={aggressive} />
       </dl>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Floor is the safe one — it&apos;s based on the lowest active listing, not an algorithmic
+        average that can be inflated by outliers.
+      </p>
     </div>
   );
 }
@@ -783,79 +1135,77 @@ function StrikeRow({
   label,
   sub,
   value,
+  highlight,
 }: {
   label: string;
   sub: string;
   value: number | string | null;
+  highlight?: boolean;
 }) {
   return (
     <div className="flex items-baseline justify-between gap-2 sm:flex-col sm:items-start sm:gap-0">
       <div>
-        <p className="text-xs font-medium">{label}</p>
+        <p
+          className={cn(
+            "text-xs font-medium",
+            highlight && "text-amber-700 dark:text-amber-400",
+          )}
+        >
+          {label}
+        </p>
         <p className="text-[10px] text-muted-foreground">{sub}</p>
       </div>
-      <p className="text-base font-bold tabular-nums text-amber-600 dark:text-amber-400">
+      <p
+        className={cn(
+          "tabular-nums",
+          highlight
+            ? "text-lg font-extrabold text-amber-600 dark:text-amber-400"
+            : "text-base font-bold text-amber-600/80 dark:text-amber-400/80",
+        )}
+      >
         {value != null ? formatStrikeUsd(num(value)) : "—"}
       </p>
     </div>
   );
 }
 
-function ProfitTable({ deal }: { deal: Deal }) {
-  const conservative = deal.profit_conservative_eur;
-  const realistic = deal.profit_realistic_eur;
-  const aggressive = deal.profit_aggressive_eur;
-  if (conservative == null && realistic == null && aggressive == null) return null;
-  const floor = num(deal.floor_eur);
-  function rowMargin(profitVal: number | string | null): string {
-    if (profitVal == null || floor <= 0) return "—";
-    const p = num(profitVal);
-    return `${((p / floor) * 100).toFixed(1)}%`;
-  }
-  return (
-    <div className="rounded-md border bg-muted/30 p-3">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        Profit potential (€)
-      </p>
-      <dl className="space-y-1 text-sm">
-        <ProfitRow label="At EU min" value={conservative} marginText={rowMargin(conservative)} />
-        <ProfitRow label="At EU avg" value={realistic} marginText={rowMargin(realistic)} />
-        <ProfitRow label="At EU max" value={aggressive} marginText={rowMargin(aggressive)} />
-      </dl>
-    </div>
-  );
-}
-
-function ProfitRow({
+function ProfitDtRow({
   label,
   value,
-  marginText,
+  marginPct,
+  emphasis,
 }: {
   label: string;
-  value: number | string | null;
-  marginText: string;
+  value: number | null;
+  marginPct: number | null;
+  emphasis: boolean;
 }) {
-  const v = value != null ? num(value) : null;
+  const positive = value != null && value >= 0;
   return (
     <div className="flex items-baseline justify-between gap-2">
       <span className="text-xs text-muted-foreground">{label}</span>
       <span className="tabular-nums">
-        {v != null ? (
+        {value != null ? (
           <span
             className={cn(
-              "font-semibold",
-              v >= 0
+              positive
                 ? "text-emerald-600 dark:text-emerald-500"
                 : "text-destructive",
+              emphasis ? "text-base font-bold" : "text-sm font-semibold",
             )}
           >
-            {v >= 0 ? "+" : ""}
-            {formatCurrency(v, "EUR")}
+            {positive ? "+" : ""}
+            {formatCurrency(value, "EUR")}
           </span>
         ) : (
           "—"
         )}
-        <span className="ml-2 text-xs text-muted-foreground">{marginText}</span>
+        {marginPct != null && (
+          <span className="ml-2 text-xs text-muted-foreground">
+            ({marginPct >= 0 ? "+" : ""}
+            {marginPct.toFixed(1)}%)
+          </span>
+        )}
       </span>
     </div>
   );
@@ -1001,6 +1351,205 @@ function Chips({ label, items }: { label: string; items: string[] }) {
           </span>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ProvenanceDialog({
+  cardId,
+  title,
+  onClose,
+}: {
+  cardId: string | null;
+  title: string;
+  onClose: () => void;
+}) {
+  const open = cardId !== null;
+  return (
+    <Dialog.Root open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
+      <Dialog.Portal>
+        <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
+        <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border bg-background p-6 shadow-xl focus:outline-none">
+          <Dialog.Title className="text-lg font-bold tracking-tight pr-8">
+            Where this number comes from
+          </Dialog.Title>
+          <Dialog.Description className="text-xs text-muted-foreground">
+            {title}
+          </Dialog.Description>
+          {cardId && <ProvenanceContent cardId={cardId} />}
+          <Dialog.Close className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent">
+            <X className="h-4 w-4" />
+            <span className="sr-only">Close</span>
+          </Dialog.Close>
+        </Dialog.Content>
+      </Dialog.Portal>
+    </Dialog.Root>
+  );
+}
+
+function ProvenanceContent({ cardId }: { cardId: string }) {
+  const provenanceQuery = useQuery<ProvenanceRow[]>({
+    queryKey: ["card_price_provenance", cardId],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = (await supabase.rpc(
+        "card_price_provenance" as never,
+        { p_card_id: cardId } as never,
+      )) as unknown as { data: ProvenanceRow[] | null; error: { message: string } | null };
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+  });
+
+  if (provenanceQuery.isLoading) {
+    return (
+      <p className="mt-4 text-sm text-muted-foreground">Loading source data…</p>
+    );
+  }
+
+  if (provenanceQuery.error) {
+    return (
+      <p className="mt-4 text-sm text-destructive">
+        Failed to load source data: {(provenanceQuery.error as Error).message}
+      </p>
+    );
+  }
+
+  const rows = provenanceQuery.data ?? [];
+  if (rows.length === 0) {
+    return (
+      <p className="mt-4 text-sm text-muted-foreground">No source data available for this card.</p>
+    );
+  }
+
+  const grouped = new Map<string, ProvenanceRow[]>();
+  for (const row of rows) {
+    const key = row.source;
+    if (!grouped.has(key)) grouped.set(key, []);
+    grouped.get(key)!.push(row);
+  }
+
+  return (
+    <div className="mt-4 space-y-3">
+      {[...grouped.entries()].map(([source, srows]) => (
+        <ProvenanceSourceCard key={source} source={source} rows={srows} />
+      ))}
+    </div>
+  );
+}
+
+function ProvenanceSourceCard({ source, rows }: { source: string; rows: ProvenanceRow[] }) {
+  const isCm = source.toLowerCase().includes("cardmarket");
+  const isTcg = source.toLowerCase().includes("tcgplayer");
+  const region = isCm ? "EU" : isTcg ? "US" : "";
+  const heading = `${source.toUpperCase()}${region ? ` (${region}` : ""}${rows[0]?.currency ? `${region ? ", " : " ("}${rows[0].currency})` : region ? ")" : ""}`;
+
+  return (
+    <div className="rounded-md border bg-muted/20 p-3">
+      <p className="text-xs font-semibold uppercase tracking-wide">{heading}</p>
+      <div className="mt-2 space-y-3">
+        {rows.map((row, i) => (
+          <ProvenanceVariant key={i} row={row} />
+        ))}
+      </div>
+      {isTcg && (
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          TCGplayer&apos;s &ldquo;market price&rdquo; is an algorithmic aggregate, not a verified
+          sale.
+        </p>
+      )}
+      {isCm && (
+        <p className="mt-2 flex items-start gap-1.5 text-[11px] text-muted-foreground">
+          <Info className="mt-0.5 h-3 w-3 shrink-0" />
+          Cardmarket&apos;s &ldquo;Price Trend&rdquo; is a proprietary recent-sales aggregate. Can
+          be inflated by outlier sales. Lowest listing is the most reliable &ldquo;buy now&rdquo;
+          price.
+        </p>
+      )}
+    </div>
+  );
+}
+
+function ProvenanceVariant({ row }: { row: ProvenanceRow }) {
+  const currency = row.currency || "USD";
+  const isCm = row.source.toLowerCase().includes("cardmarket");
+  const variantLabel = [row.variant_name, row.language, row.is_foil ? "Foil" : null]
+    .filter(Boolean)
+    .join(" · ");
+
+  const usedRowLabel = isCm ? "Trend (used)" : "Market (used)";
+
+  type Field = { label: string; value: number | string | null; highlight?: "used" | "buy" };
+  const fields: Field[] = isCm
+    ? [
+        { label: "Lowest listing", value: row.price_low, highlight: "buy" },
+        { label: "Mid (lifetime avg)", value: row.price_mid },
+        { label: usedRowLabel, value: row.price_market, highlight: "used" },
+        { label: "30-day avg", value: row.cm_avg30 },
+        { label: "7-day avg", value: row.cm_avg7 },
+      ]
+    : [
+        { label: "Lowest listed", value: row.price_low },
+        { label: "Mid", value: row.price_mid },
+        { label: usedRowLabel, value: row.price_market, highlight: "used" },
+        { label: "High", value: row.price_high },
+      ];
+
+  return (
+    <div className="space-y-1.5 rounded-md border bg-background/50 p-2">
+      {variantLabel && (
+        <p className="text-[11px] font-medium text-muted-foreground">{variantLabel}</p>
+      )}
+      <dl className="space-y-0.5 text-xs">
+        {fields.map((f) => {
+          const v = f.value != null ? num(f.value) : null;
+          if (v == null || v === 0) return null;
+          return (
+            <div key={f.label} className="flex items-baseline justify-between gap-2">
+              <dt className={cn("text-muted-foreground", f.highlight && "text-foreground")}>
+                {f.label}
+              </dt>
+              <dd
+                className={cn(
+                  "tabular-nums",
+                  f.highlight === "used" && "font-bold text-foreground",
+                  f.highlight === "buy" && "font-semibold text-emerald-600 dark:text-emerald-500",
+                )}
+              >
+                {formatCurrency(v, currency)}
+                {f.highlight === "used" && (
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                    ← what we display
+                  </span>
+                )}
+                {f.highlight === "buy" && (
+                  <span className="ml-1 text-[10px] font-normal text-muted-foreground">
+                    ← buy now floor
+                  </span>
+                )}
+              </dd>
+            </div>
+          );
+        })}
+      </dl>
+      <p className="text-[10px] text-muted-foreground">
+        Captured: {formatDateTime(row.captured_at)}
+      </p>
+      {row.source_url && (
+        <a
+          href={row.source_url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex items-center gap-1 text-[11px] font-medium text-primary hover:underline"
+        >
+          <ExternalLink className="h-3 w-3" />
+          View on {titleCase(row.source.replace(/_/g, " "))}
+        </a>
+      )}
+      {row.notes && (
+        <p className="text-[10px] italic text-muted-foreground">{row.notes}</p>
+      )}
     </div>
   );
 }

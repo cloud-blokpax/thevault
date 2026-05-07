@@ -23,52 +23,55 @@ async function fetchSections(supabase: SupabaseLike) {
     supabase
       .from("potential_deals" as never)
       .select(POTENTIAL_DEALS_SELECT)
-      .gt("profit_eur", 0);
+      .gt("profit_at_eu_low_eur", 0);
 
   const top = base()
     .eq("variant_spread_warning" as never, false as never)
     .in("match_confidence" as never, ["high", "medium"] as never)
-    .order("profit_eur", { ascending: false })
+    .order("profit_at_eu_low_eur", { ascending: false })
     .limit(SECTION_LIMIT);
 
   const sealedPremium = base()
     .eq("is_sealed" as never, true as never)
     .gte("us_buy_usd", 200)
     .eq("variant_spread_warning" as never, false as never)
-    .order("profit_eur", { ascending: false })
+    .order("profit_at_eu_low_eur", { ascending: false })
     .limit(SECTION_LIMIT);
 
   const sealedOther = base()
     .eq("is_sealed" as never, true as never)
     .lt("us_buy_usd", 200)
     .eq("variant_spread_warning" as never, false as never)
-    .order("profit_eur", { ascending: false })
+    .order("profit_at_eu_low_eur", { ascending: false })
     .limit(SECTION_LIMIT);
 
   const premiumSingles = base()
     .eq("is_sealed" as never, false as never)
     .gte("us_buy_usd", 50)
     .eq("variant_spread_warning" as never, false as never)
-    .order("profit_eur", { ascending: false })
+    .order("profit_at_eu_low_eur", { ascending: false })
     .limit(SECTION_LIMIT);
 
   const microflips = base()
     .eq("is_sealed" as never, false as never)
     .lt("us_buy_usd", 50)
-    .gte("margin_pct", 30)
+    .gte("margin_pct_at_eu_low", 30)
     .eq("variant_spread_warning" as never, false as never)
-    .order("margin_pct", { ascending: false })
+    .order("margin_pct_at_eu_low", { ascending: false })
     .limit(SECTION_LIMIT);
 
-  const verify = base()
+  const verify = supabase
+    .from("potential_deals" as never)
+    .select(POTENTIAL_DEALS_SELECT)
+    .gt("profit_eur", 0)
     .eq("variant_spread_warning" as never, true as never)
-    .order("profit_aggressive_eur", { ascending: false, nullsFirst: false })
+    .order("profit_eur", { ascending: false, nullsFirst: false })
     .limit(SECTION_LIMIT);
 
   const totals = supabase
     .from("potential_deals" as never)
-    .select("profit_eur" as never)
-    .gt("profit_eur", 0)
+    .select("profit_at_eu_low_eur" as never)
+    .gt("profit_at_eu_low_eur", 0)
     .eq("variant_spread_warning" as never, false as never)
     .limit(1000);
 
@@ -81,12 +84,12 @@ async function fetchSections(supabase: SupabaseLike) {
     verify,
     totals,
   ])) as unknown as Array<{
-    data: Deal[] | { profit_eur: number | string }[] | null;
+    data: Deal[] | { profit_at_eu_low_eur: number | string | null }[] | null;
     error: { message: string } | null;
   }>;
 
-  const allRows = (totalsRes.data ?? []) as { profit_eur: number | string }[];
-  const totalProfit = allRows.reduce((acc, row) => acc + num(row.profit_eur), 0);
+  const allRows = (totalsRes.data ?? []) as { profit_at_eu_low_eur: number | string | null }[];
+  const totalProfit = allRows.reduce((acc, row) => acc + num(row.profit_at_eu_low_eur), 0);
   const totalCount = allRows.length;
 
   return {
@@ -248,12 +251,16 @@ function Section({
 
 function BuyDealCard({ deal }: { deal: Deal }) {
   const buyUsd = num(deal.us_buy_usd);
-  const profitEur = num(deal.profit_eur);
-  const marginPct = num(deal.margin_pct);
-  const strikeUsd =
-    deal.strike_conservative_usd != null ? num(deal.strike_conservative_usd) : null;
-  const aggressiveProfit =
-    deal.profit_aggressive_eur != null ? num(deal.profit_aggressive_eur) : null;
+  const isFloorDeal = deal.profit_at_eu_low_eur != null && num(deal.profit_at_eu_low_eur) > 0;
+  const profitEur = isFloorDeal ? num(deal.profit_at_eu_low_eur) : num(deal.profit_eur);
+  const marginPct = isFloorDeal && deal.margin_pct_at_eu_low != null
+    ? num(deal.margin_pct_at_eu_low)
+    : num(deal.margin_pct);
+  const strikeUsd = isFloorDeal && deal.strike_at_eu_low_usd != null
+    ? num(deal.strike_at_eu_low_usd)
+    : deal.strike_conservative_usd != null ? num(deal.strike_conservative_usd) : null;
+  const trendProfit =
+    deal.profit_eur != null && !isFloorDeal ? null : num(deal.profit_eur);
 
   const inventoryHref = `/inventory/new?card_id=${encodeURIComponent(deal.card_id)}&buy_cost_local=${buyUsd}&buy_currency=USD&listed_price=${num(deal.eu_market_min)}&sell_currency=EUR`;
 
@@ -304,10 +311,15 @@ function BuyDealCard({ deal }: { deal: Deal }) {
             </span>{" "}
             <span>({marginPct.toFixed(1)}%)</span>
           </p>
-          {deal.variant_spread_warning && aggressiveProfit !== null && (
+          {isFloorDeal && trendProfit !== null && trendProfit > profitEur * 1.3 && (
+            <p className="text-[10px] text-muted-foreground">
+              Up to +{formatCurrency(trendProfit, "EUR")} if EU trend holds
+            </p>
+          )}
+          {!isFloorDeal && (
             <p className="flex items-center gap-1 text-[10px] text-amber-600 dark:text-amber-400">
               <AlertTriangle className="h-3 w-3" />
-              Up to +{formatCurrency(aggressiveProfit, "EUR")} if matched correctly
+              Trend-based — verify EU listings
             </p>
           )}
           <div className="flex items-center gap-2 pt-1">
