@@ -2,7 +2,6 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
@@ -18,6 +17,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CardSearchInput, type CardHit } from "@/components/card-search-input";
+import { CardImage } from "@/components/ui/card-image";
 import { titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
@@ -152,18 +152,13 @@ export default function NewInventoryItemPage() {
 
           {picked && (
             <div className="flex items-center gap-3 rounded-md border bg-muted/30 p-3">
-              {picked.image_url ? (
-                <Image
-                  src={picked.image_url}
-                  alt={picked.name}
-                  width={56}
-                  height={78}
-                  unoptimized
-                  className="shrink-0 rounded border bg-background object-contain"
-                />
-              ) : (
-                <div className="h-[78px] w-14 shrink-0 rounded border bg-background" />
-              )}
+              <CardImage
+                src={picked.image_url}
+                alt={picked.name}
+                width={56}
+                height={78}
+                fallbackText=""
+              />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{picked.name}</p>
                 <p className="truncate text-xs text-muted-foreground">
