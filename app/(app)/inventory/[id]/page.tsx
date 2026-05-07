@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -8,6 +9,62 @@ import { formatCurrency, formatDate, formatDateTime, titleCase } from "@/lib/uti
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
+
+const ATTRIBUTE_LABELS: Record<string, string> = {
+  gh_hp: "HP",
+  gh_supertype: "Type",
+  gh_subtype: "Subtype",
+  gh_rarity: "Rarity",
+  gh_attacks: "Attacks",
+  gh_artist: "Artist",
+  optcg_color: "Color",
+  optcg_type: "Type",
+  optcg_cost: "Cost",
+  optcg_power: "Power",
+  optcg_counter: "Counter",
+  optcg_attribute: "Attribute",
+};
+
+const ATTRIBUTE_KEYS_BY_GAME: Record<string, string[]> = {
+  pokemon: ["gh_hp", "gh_supertype", "gh_subtype", "gh_rarity", "gh_attacks", "gh_artist"],
+  one_piece: ["optcg_color", "optcg_type", "optcg_cost", "optcg_power", "optcg_counter", "optcg_attribute"],
+};
+
+function attributePills(
+  game: string | null | undefined,
+  attributes: Record<string, unknown> | null | undefined,
+): { key: string; label: string; value: string }[] {
+  if (!attributes) return [];
+  const keys = ATTRIBUTE_KEYS_BY_GAME[game ?? ""] ?? [];
+  return keys
+    .map((k) => {
+      const raw = (attributes as Record<string, unknown>)[k];
+      if (raw === null || raw === undefined || raw === "") return null;
+      let value: string;
+      if (Array.isArray(raw)) {
+        if (raw.length === 0) return null;
+        value = raw
+          .map((item) => {
+            if (item && typeof item === "object" && "name" in (item as object)) {
+              const o = item as { name?: unknown; damage?: unknown };
+              const n = typeof o.name === "string" ? o.name : "";
+              const d = typeof o.damage === "string" || typeof o.damage === "number" ? ` (${o.damage})` : "";
+              return `${n}${d}`.trim();
+            }
+            return String(item);
+          })
+          .filter(Boolean)
+          .join(", ");
+        if (!value) return null;
+      } else if (typeof raw === "object") {
+        value = JSON.stringify(raw);
+      } else {
+        value = String(raw);
+      }
+      return { key: k, label: ATTRIBUTE_LABELS[k] ?? k, value };
+    })
+    .filter((p): p is { key: string; label: string; value: string } => p !== null);
+}
 
 export default async function InventoryDetailPage({ params }: { params: { id: string } }) {
   const supabase = createClient();
@@ -33,6 +90,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
     is_sealed: boolean;
     image_url: string | null;
     game: string;
+    attributes: Record<string, unknown> | null;
   } | null;
   const trip = (item.trips as unknown) as {
     id: string;
@@ -40,6 +98,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
     direction: string;
     departed_on: string | null;
   } | null;
+  const pills = attributePills(card?.game, card?.attributes);
 
   return (
     <div className="space-y-4">
@@ -66,6 +125,51 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
         </div>
       </div>
 
+      <Card>
+        <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-start">
+          <div className="flex shrink-0 justify-center sm:justify-start">
+            {card?.image_url ? (
+              <Image
+                src={card.image_url}
+                alt={card.name}
+                width={240}
+                height={336}
+                unoptimized
+                className="rounded-md border bg-muted object-contain"
+                style={{ width: 240, height: "auto" }}
+              />
+            ) : (
+              <div
+                className="flex items-center justify-center rounded-md border bg-muted p-3 text-center text-sm font-medium text-muted-foreground"
+                style={{ width: 240, height: 336 }}
+              >
+                {card?.name ?? "No image"}
+              </div>
+            )}
+          </div>
+          {pills.length > 0 && (
+            <div className="min-w-0 flex-1">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                Card attributes
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {pills.map((p) => (
+                  <span
+                    key={p.key}
+                    className="inline-flex items-baseline gap-1 rounded-full border bg-muted/40 px-2.5 py-1 text-xs"
+                  >
+                    <span className="font-medium uppercase tracking-wide text-muted-foreground">
+                      {p.label}
+                    </span>
+                    <span className="font-medium">{p.value}</span>
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">
           <CardHeader>
@@ -84,7 +188,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
                 label="Listed"
                 value={
                   item.listed_price != null
-                    ? formatCurrency(item.listed_price, item.sell_currency ?? "USD")
+                    ? formatCurrency(item.listed_price, item.sell_currency ?? "EUR")
                     : "—"
                 }
               />
@@ -92,7 +196,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
                 label="Sold"
                 value={
                   item.sold_price != null
-                    ? formatCurrency(item.sold_price, item.sell_currency ?? "USD")
+                    ? formatCurrency(item.sold_price, item.sell_currency ?? "EUR")
                     : "—"
                 }
               />
@@ -107,14 +211,6 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
             <CardTitle className="text-base">Card details</CardTitle>
           </CardHeader>
           <CardContent>
-            {card?.image_url && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={card.image_url}
-                alt={card.name}
-                className="mb-3 max-h-64 w-full rounded-md border object-contain"
-              />
-            )}
             <dl className="space-y-2 text-sm">
               <Field label="Game" value={titleCase(card?.game)} />
               <Field label="Rarity" value={card?.rarity ?? "—"} />

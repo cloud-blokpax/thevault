@@ -3,8 +3,9 @@
 import { useMemo, useState } from "react";
 import Link from "next/link";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -146,6 +147,12 @@ export default function InventoryPage() {
             {filtered.length} {filtered.length === 1 ? "item" : "items"}
           </p>
         </div>
+        <Button asChild size="sm">
+          <Link href="/inventory/new">
+            <Plus className="mr-1 h-4 w-4" />
+            Add
+          </Link>
+        </Button>
       </div>
 
       <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto]">
@@ -223,7 +230,7 @@ export default function InventoryPage() {
                 </span>
                 {row.listed_price != null && (
                   <span className="font-medium">
-                    {formatCurrency(row.listed_price, row.sell_currency ?? "USD")}
+                    {formatCurrency(row.listed_price, row.sell_currency ?? "EUR")}
                   </span>
                 )}
               </div>
@@ -294,7 +301,7 @@ export default function InventoryPage() {
                   </td>
                   <td className="px-3 py-2 text-right tabular-nums">
                     {row.listed_price != null
-                      ? formatCurrency(row.listed_price, row.sell_currency ?? "USD")
+                      ? formatCurrency(row.listed_price, row.sell_currency ?? "EUR")
                       : "—"}
                   </td>
                   <td className="px-3 py-2 text-xs text-muted-foreground">
