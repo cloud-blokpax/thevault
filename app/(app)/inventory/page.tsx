@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { InventoryItemModal } from "@/components/inventory-item-modal";
 import { formatCurrency, titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
@@ -67,6 +68,7 @@ export default function InventoryPage() {
   const [game, setGame] = useState<(typeof GAME_OPTIONS)[number]>("all");
   const [sortKey, setSortKey] = useState<SortKey>("updated_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [editingId, setEditingId] = useState<string | null>(null);
 
   const { data, isLoading, error } = useQuery({
     queryKey: ["inventory", { status, game }],
@@ -207,10 +209,11 @@ export default function InventoryPage() {
           <p className="text-sm text-muted-foreground">No items match.</p>
         ) : (
           filtered.map((row) => (
-            <Link
+            <button
               key={row.id}
-              href={`/inventory/${row.id}`}
-              className="block rounded-lg border bg-card p-3 active:bg-accent"
+              type="button"
+              onClick={() => setEditingId(row.id)}
+              className="block w-full rounded-lg border bg-card p-3 text-left active:bg-accent"
             >
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
@@ -234,10 +237,15 @@ export default function InventoryPage() {
                   </span>
                 )}
               </div>
-            </Link>
+            </button>
           ))
         )}
       </div>
+
+      <InventoryItemModal
+        itemId={editingId}
+        onClose={() => setEditingId(null)}
+      />
 
       {/* Desktop table */}
       <div className="hidden overflow-x-auto rounded-lg border md:block">
@@ -283,12 +291,16 @@ export default function InventoryPage() {
               </tr>
             ) : (
               filtered.map((row) => (
-                <tr key={row.id} className="hover:bg-accent/40">
+                <tr
+                  key={row.id}
+                  onClick={() => setEditingId(row.id)}
+                  className="cursor-pointer hover:bg-accent/40"
+                >
                   <td className="px-3 py-2">
-                    <Link href={`/inventory/${row.id}`} className="font-medium hover:underline">
+                    <span className="font-medium">
                       {row.cards?.name ?? "Unknown"}
                       {row.cards?.is_foil && <span className="ml-1 text-amber-600">★</span>}
-                    </Link>
+                    </span>
                   </td>
                   <td className="px-3 py-2 text-muted-foreground">
                     {row.cards?.set_name ?? titleCase(row.cards?.game)}
