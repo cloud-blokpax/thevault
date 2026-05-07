@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Suspense, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, Star, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Star, Target, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,46 +21,27 @@ import {
 import { Card, CardContent } from "@/components/ui/card";
 import { CardSearchInput, type CardHit } from "@/components/card-search-input";
 import { cn, formatCurrency, titleCase } from "@/lib/utils";
-import type { Enums } from "@/types/database";
+import {
+  type BuyCategory,
+  type Deal,
+  type DealConfidence,
+  POTENTIAL_DEALS_SELECT,
+  num,
+} from "@/lib/deals";
 
 export const runtime = "edge";
 
-type Confidence = "high" | "medium" | "low";
-
-type Deal = {
-  card_id: string;
-  game: Enums<"game_kind">;
-  name: string;
-  set_code: string | null;
-  card_number: string | null;
-  rarity: string | null;
-  image_url: string | null;
-  is_sealed: boolean;
-  is_foil: boolean;
-  us_buy_usd: number | string;
-  us_market_min: number | string;
-  us_market_avg: number | string;
-  us_market_max: number | string;
-  us_variant_count: number;
-  us_variants: string[] | null;
-  eu_sell_eur: number | string;
-  eu_market_min: number | string;
-  eu_market_avg: number | string;
-  eu_market_max: number | string;
-  eu_variant_count: number;
-  eu_languages: string[] | null;
-  floor_eur: number | string;
-  profit_eur: number | string;
-  margin_pct: number | string;
-  match_confidence: Confidence;
-  variant_spread_warning: boolean;
-  us_captured_at: string;
-  eu_captured_at: string;
-};
+type Confidence = DealConfidence;
 
 type GameFilter = "all" | "pokemon" | "one_piece";
 type TypeFilter = "all" | "sealed" | "singles";
-type SortKey = "profit_desc" | "margin_desc" | "buy_asc" | "buy_desc";
+type SortKey =
+  | "profit_desc"
+  | "margin_desc"
+  | "buy_asc"
+  | "buy_desc"
+  | "profit_aggressive_desc";
+
 
 const PROFIT_SNAPS = [0, 5, 25, 100, 500];
 const MARGIN_SNAPS = [0, 10, 20, 30, 50, 100, 200, 500];
@@ -77,11 +59,6 @@ function snap(value: number, snaps: number[]): number {
   return best;
 }
 
-function num(v: number | string | null | undefined): number {
-  if (v == null) return 0;
-  return typeof v === "number" ? v : Number(v);
-}
-
 function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return "—";
@@ -95,16 +72,104 @@ function formatRelative(iso: string): string {
   return `${days}d ago`;
 }
 
+type CategoryDefaults = {
+  type: TypeFilter;
+  minMargin: number;
+  minBuy: string;
+  maxBuy: string;
+  showWarnings: boolean;
+  sort: SortKey;
+  confidence: Confidence[];
+};
+
+function defaultsForCategory(c: BuyCategory | null): CategoryDefaults {
+  switch (c) {
+    case "sealed-premium":
+      return {
+        type: "sealed",
+        minMargin: 0,
+        minBuy: "200",
+        maxBuy: "",
+        showWarnings: false,
+        sort: "profit_desc",
+        confidence: ["high", "medium", "low"],
+      };
+    case "sealed-other":
+      return {
+        type: "sealed",
+        minMargin: 0,
+        minBuy: "",
+        maxBuy: "200",
+        showWarnings: false,
+        sort: "profit_desc",
+        confidence: ["high", "medium", "low"],
+      };
+    case "premium-singles":
+      return {
+        type: "singles",
+        minMargin: 0,
+        minBuy: "50",
+        maxBuy: "",
+        showWarnings: false,
+        sort: "profit_desc",
+        confidence: ["high", "medium", "low"],
+      };
+    case "microflips":
+      return {
+        type: "singles",
+        minMargin: 30,
+        minBuy: "",
+        maxBuy: "50",
+        showWarnings: false,
+        sort: "margin_desc",
+        confidence: ["high", "medium", "low"],
+      };
+    case "verify":
+      return {
+        type: "all",
+        minMargin: 0,
+        minBuy: "",
+        maxBuy: "",
+        showWarnings: true,
+        sort: "profit_aggressive_desc",
+        confidence: ["high", "medium", "low"],
+      };
+    case "top":
+    default:
+      return {
+        type: "all",
+        minMargin: 0,
+        minBuy: "",
+        maxBuy: "",
+        showWarnings: false,
+        sort: "profit_desc",
+        confidence: ["high", "medium"],
+      };
+  }
+}
+
 export default function DealsPage() {
+  return (
+    <Suspense fallback={null}>
+      <DealsPageInner />
+    </Suspense>
+  );
+}
+
+function DealsPageInner() {
+  const searchParams = useSearchParams();
+  const categoryParam = searchParams.get("category") as BuyCategory | null;
+  const initial = useMemo(() => defaultsForCategory(categoryParam), [categoryParam]);
+
   const [game, setGame] = useState<GameFilter>("all");
-  const [type, setType] = useState<TypeFilter>("all");
-  const [minMargin, setMinMargin] = useState(0);
+  const [type, setType] = useState<TypeFilter>(initial.type);
+  const [minMargin, setMinMargin] = useState(initial.minMargin);
   const [minProfit, setMinProfit] = useState(0);
-  const [minBuy, setMinBuy] = useState("");
-  const [maxBuy, setMaxBuy] = useState("");
-  const [confidence, setConfidence] = useState<Confidence[]>(["high", "medium"]);
-  const [showWarnings, setShowWarnings] = useState(false);
-  const [sort, setSort] = useState<SortKey>("profit_desc");
+  const [minBuy, setMinBuy] = useState(initial.minBuy);
+  const [maxBuy, setMaxBuy] = useState(initial.maxBuy);
+  const [confidence, setConfidence] = useState<Confidence[]>(initial.confidence);
+  const [showWarnings, setShowWarnings] = useState(initial.showWarnings);
+  const [sort, setSort] = useState<SortKey>(initial.sort);
 
   const [debouncedMinBuy, setDebouncedMinBuy] = useState(minBuy);
   const [debouncedMaxBuy, setDebouncedMaxBuy] = useState(maxBuy);
@@ -139,9 +204,7 @@ export default function DealsPage() {
       const supabase = createClient();
       let q = supabase
         .from("potential_deals" as never)
-        .select(
-          "card_id, game, name, set_code, card_number, rarity, image_url, is_sealed, is_foil, us_buy_usd, us_market_min, us_market_avg, us_market_max, us_variant_count, us_variants, eu_sell_eur, eu_market_min, eu_market_avg, eu_market_max, eu_variant_count, eu_languages, floor_eur, profit_eur, margin_pct, match_confidence, variant_spread_warning, us_captured_at, eu_captured_at",
-        )
+        .select(POTENTIAL_DEALS_SELECT)
         .gt("profit_eur", 0)
         .limit(50);
 
@@ -167,6 +230,9 @@ export default function DealsPage() {
           break;
         case "buy_desc":
           q = q.order("us_buy_usd", { ascending: false });
+          break;
+        case "profit_aggressive_desc":
+          q = q.order("profit_aggressive_eur", { ascending: false });
           break;
         default:
           q = q.order("profit_eur", { ascending: false });
@@ -287,6 +353,7 @@ export default function DealsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="profit_desc">Profit (high→low)</SelectItem>
+                <SelectItem value="profit_aggressive_desc">Aggressive profit</SelectItem>
                 <SelectItem value="margin_desc">Margin (high→low)</SelectItem>
                 <SelectItem value="buy_asc">Buy (low→high)</SelectItem>
                 <SelectItem value="buy_desc">Buy (high→low)</SelectItem>
@@ -406,9 +473,9 @@ function MarginStars({ marginPct }: { marginPct: number }) {
 function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
   const buyUsd = num(deal.us_buy_usd);
   const sellEur = num(deal.eu_sell_eur);
-  const floorEur = num(deal.floor_eur);
   const profitEur = num(deal.profit_eur);
   const marginPct = num(deal.margin_pct);
+  const strikeUsd = deal.strike_conservative_usd != null ? num(deal.strike_conservative_usd) : null;
 
   const titleParts = [deal.name];
   if (deal.set_code) titleParts.push(deal.set_code);
@@ -459,52 +526,58 @@ function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
               )}
             </p>
           </div>
-          <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs sm:grid-cols-4">
-            <PriceCell label="Buy" value={formatCurrency(buyUsd, "USD")} />
-            <PriceCell label="Sell" value={formatCurrency(sellEur, "EUR")} />
-            <PriceCell label="Floor" value={formatCurrency(floorEur, "EUR")} />
-            <PriceCell
-              label="Profit"
-              value={`+${formatCurrency(profitEur, "EUR")}`}
-              accent
-              suffix={
-                <span className="ml-1 text-muted-foreground">
-                  {marginPct.toFixed(1)}% <MarginStars marginPct={marginPct} />
-                </span>
-              }
-            />
-          </div>
+          <StrikeLine
+            strikeUsd={strikeUsd}
+            buyUsd={buyUsd}
+            sellEur={sellEur}
+            profitEur={profitEur}
+            marginPct={marginPct}
+          />
         </div>
       </div>
     </button>
   );
 }
 
-function PriceCell({
-  label,
-  value,
-  accent,
-  suffix,
+function StrikeLine({
+  strikeUsd,
+  buyUsd,
+  sellEur,
+  profitEur,
+  marginPct,
 }: {
-  label: string;
-  value: string;
-  accent?: boolean;
-  suffix?: React.ReactNode;
+  strikeUsd: number | null;
+  buyUsd: number;
+  sellEur: number;
+  profitEur: number;
+  marginPct: number;
 }) {
   return (
-    <div>
-      <p className="text-[10px] uppercase tracking-wide text-muted-foreground">{label}</p>
-      <p
-        className={cn(
-          "tabular-nums",
-          accent ? "font-semibold text-emerald-600 dark:text-emerald-500" : "font-medium",
-        )}
-      >
-        {value}
-        {suffix}
+    <div className="space-y-1">
+      <div className="flex flex-wrap items-baseline gap-x-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Buy up to
+        </span>
+        <span className="text-xl font-extrabold tabular-nums text-amber-600 dark:text-amber-400">
+          {strikeUsd != null ? formatStrikeUsd(strikeUsd) : "—"}
+        </span>
+        <MarginStars marginPct={marginPct} />
+      </div>
+      <p className="text-xs text-muted-foreground tabular-nums">
+        Currently {formatCurrency(buyUsd, "USD")} US → {formatCurrency(sellEur, "EUR")} EU
+      </p>
+      <p className="text-xs tabular-nums">
+        <span className="font-semibold text-emerald-600 dark:text-emerald-500">
+          +{formatCurrency(profitEur, "EUR")}
+        </span>
+        <span className="ml-1 text-muted-foreground">({marginPct.toFixed(1)}%)</span>
       </p>
     </div>
   );
+}
+
+function formatStrikeUsd(value: number): string {
+  return formatCurrency(value, "USD", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
 }
 
 function DealDetailDialog({ deal, onClose }: { deal: Deal | null; onClose: () => void }) {
@@ -619,6 +692,10 @@ function DealDetailContent({ deal }: { deal: Deal }) {
         <Chips label={`EU languages (${deal.eu_variant_count})`} items={deal.eu_languages} />
       )}
 
+      <StrikeTable deal={deal} />
+
+      <ProfitTable deal={deal} />
+
       <div className="rounded-md border bg-muted/30 p-3">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
           Floor breakdown
@@ -655,6 +732,108 @@ function DealDetailContent({ deal }: { deal: Deal }) {
       </div>
 
       <p className="text-xs text-muted-foreground">Updated {formatRelative(captured)}</p>
+    </div>
+  );
+}
+
+function StrikeTable({ deal }: { deal: Deal }) {
+  const conservative = deal.strike_conservative_usd;
+  const realistic = deal.strike_realistic_usd;
+  const aggressive = deal.strike_aggressive_usd;
+  if (conservative == null && realistic == null && aggressive == null) return null;
+  return (
+    <div className="rounded-md border bg-amber-50/40 p-3 dark:bg-amber-950/20">
+      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <Target className="h-3.5 w-3.5" />
+        Price strike (max USD to pay)
+      </p>
+      <dl className="grid grid-cols-1 gap-1 text-sm sm:grid-cols-3">
+        <StrikeRow label="Conservative" sub="sell at EU min" value={conservative} />
+        <StrikeRow label="Realistic" sub="sell at EU avg" value={realistic} />
+        <StrikeRow label="Aggressive" sub="sell at EU max" value={aggressive} />
+      </dl>
+    </div>
+  );
+}
+
+function StrikeRow({
+  label,
+  sub,
+  value,
+}: {
+  label: string;
+  sub: string;
+  value: number | string | null;
+}) {
+  return (
+    <div className="flex items-baseline justify-between gap-2 sm:flex-col sm:items-start sm:gap-0">
+      <div>
+        <p className="text-xs font-medium">{label}</p>
+        <p className="text-[10px] text-muted-foreground">{sub}</p>
+      </div>
+      <p className="text-base font-bold tabular-nums text-amber-600 dark:text-amber-400">
+        {value != null ? formatStrikeUsd(num(value)) : "—"}
+      </p>
+    </div>
+  );
+}
+
+function ProfitTable({ deal }: { deal: Deal }) {
+  const conservative = deal.profit_conservative_eur;
+  const realistic = deal.profit_realistic_eur;
+  const aggressive = deal.profit_aggressive_eur;
+  if (conservative == null && realistic == null && aggressive == null) return null;
+  const floor = num(deal.floor_eur);
+  function rowMargin(profitVal: number | string | null): string {
+    if (profitVal == null || floor <= 0) return "—";
+    const p = num(profitVal);
+    return `${((p / floor) * 100).toFixed(1)}%`;
+  }
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        Profit potential (€)
+      </p>
+      <dl className="space-y-1 text-sm">
+        <ProfitRow label="At EU min" value={conservative} marginText={rowMargin(conservative)} />
+        <ProfitRow label="At EU avg" value={realistic} marginText={rowMargin(realistic)} />
+        <ProfitRow label="At EU max" value={aggressive} marginText={rowMargin(aggressive)} />
+      </dl>
+    </div>
+  );
+}
+
+function ProfitRow({
+  label,
+  value,
+  marginText,
+}: {
+  label: string;
+  value: number | string | null;
+  marginText: string;
+}) {
+  const v = value != null ? num(value) : null;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className="text-xs text-muted-foreground">{label}</span>
+      <span className="tabular-nums">
+        {v != null ? (
+          <span
+            className={cn(
+              "font-semibold",
+              v >= 0
+                ? "text-emerald-600 dark:text-emerald-500"
+                : "text-destructive",
+            )}
+          >
+            {v >= 0 ? "+" : ""}
+            {formatCurrency(v, "EUR")}
+          </span>
+        ) : (
+          "—"
+        )}
+        <span className="ml-2 text-xs text-muted-foreground">{marginText}</span>
+      </span>
     </div>
   );
 }
@@ -720,8 +899,12 @@ function Chips({ label, items }: { label: string; items: string[] }) {
 type EvalResult = {
   floorEur: number;
   euMin: number | null;
+  euAvg: number | null;
   profit: number | null;
   breakeven: number;
+  buyUsd: number;
+  strikeConservative: number | null;
+  strikeRealistic: number | null;
 };
 
 function QuickEvaluator() {
@@ -792,21 +975,38 @@ function QuickEvaluator() {
       const supabase = createClient();
       const { data: euRows, error: euErr } = (await supabase
         .from("latest_eu_prices" as never)
-        .select("eu_market_min")
+        .select("eu_market_min, eu_market_avg")
         .eq("card_group_id" as never, picked.id as never)) as unknown as {
-        data: { eu_market_min: number | string | null }[] | null;
+        data: { eu_market_min: number | string | null; eu_market_avg: number | string | null }[] | null;
         error: { message: string } | null;
       };
       if (euErr) throw new Error(euErr.message);
       let euMin: number | null = null;
+      let euAvg: number | null = null;
       for (const row of euRows ?? []) {
         const v = num(row.eu_market_min);
         if (v > 0 && (euMin === null || v < euMin)) euMin = v;
+        const a = num(row.eu_market_avg);
+        if (a > 0 && (euAvg === null || a < euAvg)) euAvg = a;
       }
       const { cdMargin, ppMargin, travelUsd, fxUsdEur } = settings.data;
       const floorEur = (buy + travelUsd) * fxUsdEur * (1 + cdMargin + ppMargin);
       const profit = euMin !== null ? euMin - floorEur : null;
-      setResult({ floorEur, euMin, profit, breakeven: floorEur });
+      const denom = fxUsdEur * (1 + cdMargin + ppMargin);
+      const strikeConservative =
+        euMin !== null && denom > 0 ? euMin / denom - travelUsd : null;
+      const strikeRealistic =
+        euAvg !== null && denom > 0 ? euAvg / denom - travelUsd : null;
+      setResult({
+        floorEur,
+        euMin,
+        euAvg,
+        profit,
+        breakeven: floorEur,
+        buyUsd: buy,
+        strikeConservative,
+        strikeRealistic,
+      });
     } catch (err) {
       setError((err as Error).message);
     } finally {
@@ -870,25 +1070,48 @@ function QuickEvaluator() {
 }
 
 function EvaluatorResult({ result }: { result: EvalResult }) {
-  const { floorEur, euMin, profit, breakeven } = result;
-  const verdict =
-    euMin === null
-      ? null
-      : profit !== null && profit >= 0
-        ? {
-            ok: true as const,
-            text: `Profit ~${formatCurrency(profit, "EUR")} at EU min`,
-          }
-        : {
-            ok: false as const,
-            text: `Loss of ${formatCurrency(Math.abs(profit ?? 0), "EUR")} at EU min, need EU > ${formatCurrency(breakeven, "EUR")} to break even`,
-          };
+  const { strikeConservative, strikeRealistic, buyUsd, profit, euMin } = result;
+  const passes = strikeConservative !== null && buyUsd <= strikeConservative;
+  const headroom =
+    strikeConservative !== null ? strikeConservative - buyUsd : null;
+
+  let verdict: { ok: boolean; text: string } | null = null;
+  if (strikeConservative === null) {
+    verdict = null;
+  } else if (passes) {
+    const profitText =
+      profit !== null && profit >= 0 ? ` — profit ~${formatCurrency(profit, "EUR")} at EU min` : "";
+    verdict = {
+      ok: true,
+      text: `PROFITABLE — ${formatStrikeUsd(headroom ?? 0)} below strike${profitText}`,
+    };
+  } else {
+    const over = buyUsd - strikeConservative;
+    verdict = {
+      ok: false,
+      text: `PASS — ${formatStrikeUsd(over)} above strike`,
+    };
+  }
+
   return (
     <div className="rounded-md border bg-muted/30 p-3 text-sm">
-      <div className="grid grid-cols-2 gap-2 text-xs sm:grid-cols-3">
+      <div className="grid gap-2 text-xs sm:grid-cols-3">
         <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Floor needed</p>
-          <p className="tabular-nums font-medium">{formatCurrency(floorEur, "EUR")}</p>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Strike (conservative)
+          </p>
+          <p className="tabular-nums font-bold text-amber-600 dark:text-amber-400">
+            {strikeConservative !== null ? formatStrikeUsd(strikeConservative) : "—"}
+          </p>
+          <p className="text-[10px] text-muted-foreground">buy up to this</p>
+        </div>
+        <div>
+          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">
+            Strike (realistic)
+          </p>
+          <p className="tabular-nums font-medium">
+            {strikeRealistic !== null ? formatStrikeUsd(strikeRealistic) : "—"}
+          </p>
         </div>
         <div>
           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">EU min</p>
@@ -896,14 +1119,13 @@ function EvaluatorResult({ result }: { result: EvalResult }) {
             {euMin === null ? "—" : formatCurrency(euMin, "EUR")}
           </p>
         </div>
-        <div>
-          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Break-even</p>
-          <p className="tabular-nums font-medium">{formatCurrency(breakeven, "EUR")}</p>
-        </div>
       </div>
+      <p className="mt-2 text-xs text-muted-foreground">
+        Asking is {formatStrikeUsd(buyUsd)}.
+      </p>
       <p
         className={cn(
-          "mt-2 text-sm font-semibold",
+          "mt-1 text-sm font-semibold",
           verdict === null
             ? "text-muted-foreground"
             : verdict.ok
@@ -911,7 +1133,9 @@ function EvaluatorResult({ result }: { result: EvalResult }) {
               : "text-destructive",
         )}
       >
-        {verdict === null ? "No EU price on file — can't compare." : `${verdict.ok ? "✅" : "❌"} ${verdict.text}`}
+        {verdict === null
+          ? "No EU price on file — can't compare."
+          : `${verdict.ok ? "✅" : "❌"} ${verdict.text}`}
       </p>
     </div>
   );

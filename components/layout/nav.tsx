@@ -3,22 +3,22 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
-  LayoutDashboard,
   Boxes,
   TrendingUp,
   Plane,
   Calculator,
   Settings as SettingsIcon,
+  Target,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_ITEMS = [
-  { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
-  { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/buy", label: "Buy", icon: Target },
   { href: "/deals", label: "Deals", icon: TrendingUp },
-  { href: "/trips", label: "Trips", icon: Plane },
+  { href: "/inventory", label: "Inventory", icon: Boxes },
   { href: "/calculator", label: "Calc", icon: Calculator },
+  { href: "/trips", label: "Trips", icon: Plane },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ] as const;
 
