@@ -12,6 +12,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { FxWidget } from "@/components/layout/fx-widget";
 
 const NAV_ITEMS = [
   { href: "/buy", label: "Buy", icon: Target },
@@ -81,6 +82,9 @@ export function DesktopNav({ email }: { email?: string | null }) {
           );
         })}
       </nav>
+      <div className="border-t p-3 pb-2">
+        <FxWidget />
+      </div>
       <form action="/api/auth/signout" method="post" className="border-t p-3">
         {email && (
           <p className="mb-2 truncate px-1 text-xs text-muted-foreground" title={email}>

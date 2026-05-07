@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,6 +16,7 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { formatCurrency } from "@/lib/utils";
+import { fxRateOn } from "@/lib/supabase/fx";
 import type { Enums } from "@/types/database";
 
 export const runtime = "edge";
@@ -60,6 +61,92 @@ function resolveBreakdownCurrency(
     : fallback;
 }
 
+function useHistoricalFx(
+  date: string,
+  base: Enums<"currency_code">,
+  quote: Enums<"currency_code">,
+) {
+  const enabled =
+    !!date &&
+    /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+    base !== quote;
+  return useQuery({
+    queryKey: ["calc-fx", date || "today", base, quote],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const supabase = createClient();
+      return await fxRateOn(supabase, date, base, quote);
+    },
+  });
+}
+
+function FxHint({
+  date,
+  base,
+  quote,
+  fxOverride,
+  onResolved,
+}: {
+  date: string;
+  base: Enums<"currency_code">;
+  quote: Enums<"currency_code">;
+  fxOverride: string;
+  onResolved: (rate: number | null) => void;
+}) {
+  const fx = useHistoricalFx(date, base, quote);
+
+  useEffect(() => {
+    if (fxOverride.trim() !== "") {
+      onResolved(null);
+      return;
+    }
+    if (!date) {
+      onResolved(null);
+      return;
+    }
+    if (fx.data) {
+      onResolved(Number(fx.data.rate));
+    }
+  }, [fx.data, fxOverride, date, onResolved]);
+
+  if (fxOverride.trim() !== "") {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: {Number(fxOverride).toFixed(4)} (manual override)
+      </p>
+    );
+  }
+  if (base === quote) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: 1.0000 (same currency)
+      </p>
+    );
+  }
+  if (!date) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Using today&apos;s FX (no date set).
+      </p>
+    );
+  }
+  if (fx.isLoading) {
+    return <p className="text-[11px] text-muted-foreground">Looking up FX…</p>;
+  }
+  if (fx.data) {
+    const tag = fx.data.is_exact_match
+      ? `${fx.data.rate_date} — historical`
+      : `${fx.data.rate_date} (${fx.data.days_back}d back) — historical`;
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: {Number(fx.data.rate).toFixed(4)} ({tag})
+      </p>
+    );
+  }
+  return null;
+}
+
 function FloorPriceForm() {
   const [buyCost, setBuyCost] = useState("");
   const [buyCcy, setBuyCcy] = useState<Enums<"currency_code">>("EUR");
@@ -67,15 +154,25 @@ function FloorPriceForm() {
   const [fx, setFx] = useState("");
   const [marginCd, setMarginCd] = useState("");
   const [marginPp, setMarginPp] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [resolvedFx, setResolvedFx] = useState<number | null>(null);
+
+  const sellCcy: Enums<"currency_code"> = buyCcy === "USD" ? "EUR" : "USD";
 
   const mutation = useMutation({
     mutationFn: async () => {
       const supabase = createClient();
+      const fxToUse =
+        fx.trim() !== ""
+          ? Number(fx)
+          : resolvedFx != null
+            ? resolvedFx
+            : undefined;
       const { data, error } = await supabase.rpc("calc_floor_price", {
         p_buy_cost_local: Number(buyCost),
         p_buy_currency: buyCcy,
         p_allocated_travel: travel ? Number(travel) : 0,
-        p_fx_rate: fx ? Number(fx) : undefined,
+        p_fx_rate: fxToUse,
         p_margin_cd: marginCd ? Number(marginCd) : undefined,
         p_margin_pp: marginPp ? Number(marginPp) : undefined,
       });
@@ -117,12 +214,27 @@ function FloorPriceForm() {
             </Select>
           </div>
           <div className="space-y-2">
+            <Label>Purchase date (optional)</Label>
+            <Input
+              type="date"
+              value={purchaseDate}
+              onChange={(e) => setPurchaseDate(e.target.value)}
+            />
+            <FxHint
+              date={purchaseDate}
+              base={buyCcy}
+              quote={sellCcy}
+              fxOverride={fx}
+              onResolved={setResolvedFx}
+            />
+          </div>
+          <div className="space-y-2">
             <Label>Allocated travel (optional)</Label>
             <Input inputMode="decimal" value={travel} onChange={(e) => setTravel(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>FX rate (optional)</Label>
-            <Input inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value)} placeholder="auto from settings" />
+            <Label>FX rate (optional override)</Label>
+            <Input inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value)} placeholder="auto from date or settings" />
           </div>
           <div className="space-y-2">
             <Label>Margin (cards & dealers)</Label>
@@ -163,15 +275,25 @@ function MaxBuyForm() {
   const [fx, setFx] = useState("");
   const [marginCd, setMarginCd] = useState("");
   const [marginPp, setMarginPp] = useState("");
+  const [saleDate, setSaleDate] = useState("");
+  const [resolvedFx, setResolvedFx] = useState<number | null>(null);
+
+  const buyCcy: Enums<"currency_code"> = sellCcy === "USD" ? "EUR" : "USD";
 
   const mutation = useMutation({
     mutationFn: async () => {
       const supabase = createClient();
+      const fxToUse =
+        fx.trim() !== ""
+          ? Number(fx)
+          : resolvedFx != null
+            ? resolvedFx
+            : undefined;
       const { data, error } = await supabase.rpc("calc_max_buy_price", {
         p_target_sell_price: Number(target),
         p_sell_currency: sellCcy,
         p_allocated_travel: travel ? Number(travel) : 0,
-        p_fx_rate: fx ? Number(fx) : undefined,
+        p_fx_rate: fxToUse,
         p_margin_cd: marginCd ? Number(marginCd) : undefined,
         p_margin_pp: marginPp ? Number(marginPp) : undefined,
       });
@@ -213,12 +335,27 @@ function MaxBuyForm() {
             </Select>
           </div>
           <div className="space-y-2">
+            <Label>Sale date (optional)</Label>
+            <Input
+              type="date"
+              value={saleDate}
+              onChange={(e) => setSaleDate(e.target.value)}
+            />
+            <FxHint
+              date={saleDate}
+              base={buyCcy}
+              quote={sellCcy}
+              fxOverride={fx}
+              onResolved={setResolvedFx}
+            />
+          </div>
+          <div className="space-y-2">
             <Label>Allocated travel (optional)</Label>
             <Input inputMode="decimal" value={travel} onChange={(e) => setTravel(e.target.value)} />
           </div>
           <div className="space-y-2">
-            <Label>FX rate (optional)</Label>
-            <Input inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value)} placeholder="auto from settings" />
+            <Label>FX rate (optional override)</Label>
+            <Input inputMode="decimal" value={fx} onChange={(e) => setFx(e.target.value)} placeholder="auto from date or settings" />
           </div>
           <div className="space-y-2">
             <Label>Margin (cards & dealers)</Label>

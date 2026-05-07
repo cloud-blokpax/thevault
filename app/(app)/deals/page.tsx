@@ -28,6 +28,7 @@ import {
 } from "@/components/ui/select";
 import { Card, CardContent } from "@/components/ui/card";
 import { CardImage } from "@/components/ui/card-image";
+import { ZoomableCardImage } from "@/components/ui/zoomable-card-image";
 import { CardSearchInput, type CardHit } from "@/components/card-search-input";
 import { cn, formatCurrency, formatDateTime, titleCase } from "@/lib/utils";
 import {
@@ -942,7 +943,7 @@ function DealDetailContent({
 
       <div className="flex flex-col gap-4 sm:flex-row">
         <div className="shrink-0">
-          <CardImage src={deal.image_url} alt={deal.name} width={200} height={280} />
+          <ZoomableCardImage src={deal.image_url} alt={deal.name} width={200} height={280} />
         </div>
         <div className="min-w-0 flex-1 space-y-2 text-sm">
           <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-xs">

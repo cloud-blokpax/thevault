@@ -16,13 +16,16 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CardImage } from "@/components/ui/card-image";
+import { ZoomableCardImage } from "@/components/ui/zoomable-card-image";
+import { CardSearchInput, type CardHit } from "@/components/card-search-input";
+import { AlertTriangle } from "lucide-react";
 import {
   getInventoryItemDetail,
   inventoryItemActivityLog,
   type ActivityLogRow,
   type InventoryItemDetail,
 } from "@/lib/supabase/rpc";
+import { fxRateOn } from "@/lib/supabase/fx";
 import { cn, formatCurrency, formatDateTime, titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
@@ -340,6 +343,34 @@ function ItemModalBody({
   });
 
   const detail = detailQuery.data ?? null;
+  const [showRelink, setShowRelink] = useState(false);
+  const [relinkError, setRelinkError] = useState<string | null>(null);
+
+  const relinkMutation = useMutation({
+    mutationFn: async (newCardId: string) => {
+      const supabase = createClient();
+      const client = supabase as unknown as {
+        rpc: (
+          name: string,
+          args: Record<string, unknown>,
+        ) => Promise<{ data: unknown; error: { message: string } | null }>;
+      };
+      const { error } = await client.rpc("relink_inventory_card", {
+        p_inventory_id: itemId,
+        p_new_card_id: newCardId,
+      });
+      if (error) throw new Error(error.message);
+    },
+    onSuccess: async () => {
+      setShowRelink(false);
+      setRelinkError(null);
+      await Promise.all([
+        qc.invalidateQueries({ queryKey: ["inventory-item-detail", itemId] }),
+        qc.invalidateQueries({ queryKey: ["inventory"] }),
+      ]);
+    },
+    onError: (e: Error) => setRelinkError(e.message),
+  });
 
   const tripsQuery = useQuery({
     queryKey: ["open-trips"],
@@ -384,6 +415,35 @@ function ItemModalBody({
       const { patch, changedKeys } = buildPatch(original, state);
       if (changedKeys.length === 0) return { changed: 0 };
       const supabase = createClient();
+
+      const lockedAlready = original.fx_rate_locked.trim() !== "";
+      const userTouchedLocked = "fx_rate_locked" in patch;
+      if (
+        !lockedAlready &&
+        !userTouchedLocked &&
+        state.bought_on &&
+        /^\d{4}-\d{2}-\d{2}$/.test(state.bought_on) &&
+        state.buy_currency
+      ) {
+        const otherCcy = state.buy_currency === "USD" ? "EUR" : "USD";
+        if (otherCcy !== state.buy_currency) {
+          try {
+            const fx = await fxRateOn(
+              supabase,
+              state.bought_on,
+              state.buy_currency,
+              otherCcy,
+            );
+            if (fx) {
+              patch.fx_rate_locked = Number(fx.rate);
+              changedKeys.push("fx_rate_locked");
+            }
+          } catch {
+            /* non-fatal: skip locking */
+          }
+        }
+      }
+
       const { error } = await supabase
         .from("inventory_items")
         .update(patch as never)
@@ -445,6 +505,8 @@ function ItemModalBody({
   const card = detail.card;
   const trip = detail.trip;
   const pricing = detail.pricing;
+  const orphan =
+    !!card && (!card.image_url || !card.set_name || !card.set_code);
 
   const openTrips = tripsQuery.data ?? [];
   const tripOptions: { value: string; label: string }[] = [
@@ -501,10 +563,80 @@ function ItemModalBody({
         </div>
       </div>
 
+      {orphan && (
+        <div className="border-b bg-amber-50 px-5 py-3 text-xs text-amber-900 dark:bg-amber-950/40 dark:text-amber-200">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div className="flex-1">
+              <p className="font-medium">
+                This inventory item has limited card data
+              </p>
+              <p className="mt-0.5 text-amber-800/80 dark:text-amber-200/80">
+                The linked card record is missing
+                {!card?.image_url ? " image" : ""}
+                {!card?.set_name ? ", set name" : ""}
+                {!card?.set_code ? ", set code" : ""}
+                .
+              </p>
+              {!showRelink && (
+                <button
+                  type="button"
+                  onClick={() => setShowRelink(true)}
+                  className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-amber-900 underline hover:no-underline dark:text-amber-100"
+                >
+                  🔗 Link to a richer card record
+                </button>
+              )}
+              {showRelink && (
+                <div className="mt-2 rounded-md border border-amber-300 bg-background p-2 dark:border-amber-800">
+                  <p className="mb-1 text-[11px] text-muted-foreground">
+                    Search for the correct card and pick one to relink.
+                  </p>
+                  <CardSearchInput
+                    onSelect={(c: CardHit) => {
+                      if (
+                        window.confirm(
+                          `Relink this inventory item to "${c.name}"${c.set_name ? ` (${c.set_name})` : ""}? The orphan card record will be deleted if no other items reference it.`,
+                        )
+                      ) {
+                        relinkMutation.mutate(c.id);
+                      }
+                    }}
+                    placeholder="Search cards…"
+                  />
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowRelink(false);
+                        setRelinkError(null);
+                      }}
+                      className="text-[11px] text-muted-foreground hover:underline"
+                    >
+                      Cancel
+                    </button>
+                    {relinkMutation.isPending && (
+                      <span className="text-[11px] text-muted-foreground">
+                        Relinking…
+                      </span>
+                    )}
+                    {relinkError && (
+                      <span className="text-[11px] text-destructive">
+                        {relinkError}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       <div className="grid gap-5 p-5 md:grid-cols-[220px_1fr]">
         <div className="space-y-3">
           <div className="flex justify-center md:justify-start">
-            <CardImage
+            <ZoomableCardImage
               src={card?.image_url}
               alt={card?.name ?? "Card image"}
               width={220}
@@ -597,6 +729,12 @@ function ItemModalBody({
                     </SelectContent>
                   </Select>
                 </div>
+                <BuyFxPreview
+                  amount={form.buy_cost_local}
+                  buyCurrency={form.buy_currency}
+                  date={form.bought_on}
+                  lockedRate={form.fx_rate_locked}
+                />
               </Field>
               <Field label="Bought on">
                 <Input
@@ -855,6 +993,66 @@ function ItemModalBody({
         </Button>
       </div>
     </form>
+  );
+}
+
+function BuyFxPreview({
+  amount,
+  buyCurrency,
+  date,
+  lockedRate,
+}: {
+  amount: string;
+  buyCurrency: Enums<"currency_code">;
+  date: string;
+  lockedRate: string;
+}) {
+  const value = Number(amount);
+  const useDate = date && /^\d{4}-\d{2}-\d{2}$/.test(date) ? date : null;
+  const otherCcy = buyCurrency === "USD" ? "EUR" : "USD";
+  const showLocked = lockedRate.trim() !== "" && !Number.isNaN(Number(lockedRate));
+
+  const fxQuery = useQuery({
+    queryKey: ["fx-rate-on", useDate, buyCurrency, otherCcy],
+    enabled: !!useDate && !showLocked && buyCurrency !== otherCcy,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const supabase = createClient();
+      return await fxRateOn(supabase, useDate as string, buyCurrency, otherCcy);
+    },
+  });
+
+  if (Number.isNaN(value) || amount === "") return null;
+  if (buyCurrency === otherCcy) return null;
+
+  let rate: number | null = null;
+  let label = "";
+  if (showLocked) {
+    rate = Number(lockedRate);
+    label = "locked";
+  } else if (fxQuery.data) {
+    rate = Number(fxQuery.data.rate);
+    label = fxQuery.data.is_exact_match
+      ? `${fxQuery.data.rate_date}`
+      : `${fxQuery.data.rate_date} (${fxQuery.data.days_back}d back)`;
+  }
+
+  if (rate == null) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        {fxQuery.isFetching ? "Looking up FX…" : "Set bought-on date for FX preview"}
+      </p>
+    );
+  }
+
+  const converted = value * rate;
+  return (
+    <p className="text-[11px] text-muted-foreground">
+      ≈ {formatCurrency(converted, otherCcy)}{" "}
+      <span className="text-[10px]">
+        @ {rate.toFixed(4)} ({label})
+      </span>
+    </p>
   );
 }
 
