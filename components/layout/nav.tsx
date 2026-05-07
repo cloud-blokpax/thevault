@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import {
   LayoutDashboard,
   Boxes,
+  TrendingUp,
   Plane,
   Calculator,
   Settings as SettingsIcon,
@@ -15,6 +16,7 @@ import { cn } from "@/lib/utils";
 const NAV_ITEMS = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutDashboard },
   { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/deals", label: "Deals", icon: TrendingUp },
   { href: "/trips", label: "Trips", icon: Plane },
   { href: "/calculator", label: "Calc", icon: Calculator },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -27,7 +29,7 @@ export function MobileNav() {
       className="fixed inset-x-0 bottom-0 z-40 border-t bg-background pb-safe md:hidden"
       aria-label="Primary"
     >
-      <ul className="grid grid-cols-5">
+      <ul className="grid grid-cols-6">
         {NAV_ITEMS.map(({ href, label, icon: Icon }) => {
           const active = pathname === href || pathname.startsWith(`${href}/`);
           return (
