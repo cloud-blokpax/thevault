@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
-import { AlertTriangle, ExternalLink, Star, Target, X } from "lucide-react";
+import { AlertTriangle, ExternalLink, Plus, ShoppingCart, Target, X } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -25,7 +25,9 @@ import {
   type BuyCategory,
   type Deal,
   type DealConfidence,
+  type EbayListing,
   POTENTIAL_DEALS_SELECT,
+  gameLabel,
   num,
 } from "@/lib/deals";
 
@@ -451,60 +453,62 @@ function ConfidenceBadge({ confidence }: { confidence: Confidence }) {
   );
 }
 
-function MarginStars({ marginPct }: { marginPct: number }) {
-  if (marginPct >= 100) {
-    return (
-      <span className="text-amber-500" title="100%+ margin">
-        <Star className="inline h-3.5 w-3.5 fill-current" />
-        <Star className="inline h-3.5 w-3.5 fill-current" />
-      </span>
-    );
-  }
-  if (marginPct >= 30) {
-    return (
-      <span className="text-amber-500" title="30%+ margin">
-        <Star className="inline h-3.5 w-3.5 fill-current" />
-      </span>
-    );
-  }
-  return null;
+function marginColorClass(marginPct: number): string {
+  if (marginPct >= 50) return "text-amber-500 dark:text-amber-400";
+  if (marginPct >= 10) return "text-emerald-600 dark:text-emerald-500";
+  return "text-muted-foreground";
 }
 
 function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
   const buyUsd = num(deal.us_buy_usd);
+  const buyEur = deal.us_buy_eur != null ? num(deal.us_buy_eur) : null;
   const sellEur = num(deal.eu_sell_eur);
+  const sellUsd = deal.eu_sell_usd != null ? num(deal.eu_sell_usd) : null;
   const profitEur = num(deal.profit_eur);
+  const profitUsd = deal.profit_usd != null ? num(deal.profit_usd) : null;
   const marginPct = num(deal.margin_pct);
-  const strikeUsd = deal.strike_conservative_usd != null ? num(deal.strike_conservative_usd) : null;
-
-  const titleParts = [deal.name];
-  if (deal.set_code) titleParts.push(deal.set_code);
-  const numberSuffix = deal.card_number ? ` (${deal.card_number})` : "";
+  const ebayCount = deal.ebay_active_count != null ? num(deal.ebay_active_count) : 0;
+  const ebayBest = deal.ebay_best_total_usd != null ? num(deal.ebay_best_total_usd) : null;
+  const ebayUrl = deal.ebay_best_listing_url;
+  const hasEbay = ebayCount > 0 && !!ebayUrl;
 
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       onClick={onOpen}
-      className="block w-full rounded-lg border bg-card text-left transition-colors hover:bg-accent/40 active:bg-accent"
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onOpen();
+        }
+      }}
+      className="group relative block w-full cursor-pointer overflow-hidden rounded-lg border bg-card text-left shadow-sm transition-all hover:-translate-y-0.5 hover:shadow-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
     >
-      <div className="flex gap-3 p-3">
+      <span
+        aria-hidden
+        className="absolute right-2 top-2 z-10 inline-flex h-6 w-6 items-center justify-center rounded-full border bg-background/80 text-muted-foreground opacity-70 backdrop-blur transition-opacity group-hover:opacity-100"
+      >
+        <Plus className="h-3.5 w-3.5" />
+      </span>
+
+      <div className="flex flex-col gap-3 p-3 sm:flex-row">
         <div className="shrink-0">
-          <CardImage src={deal.image_url} alt="" width={80} height={112} />
+          <CardImage src={deal.image_url} alt="" width={60} height={84} />
         </div>
         <div className="min-w-0 flex-1 space-y-2">
-          <div>
-            <p className="truncate text-sm font-semibold">
-              {titleParts.join(" · ")}
-              {numberSuffix}
-            </p>
-            <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
-              <span>{titleCase(deal.game)}</span>
+          <div className="pr-7">
+            <p className="text-sm font-semibold leading-snug line-clamp-2">{deal.name}</p>
+            <p className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-muted-foreground">
+              <span>{gameLabel(deal.game)}</span>
               <span>·</span>
               <span>{deal.is_sealed ? "Sealed" : "Single"}</span>
-              <span>·</span>
-              <span>
-                {deal.us_variant_count} US, {deal.eu_variant_count} EU
-              </span>
+              {deal.set_name && (
+                <>
+                  <span>·</span>
+                  <span className="truncate">{deal.set_name}</span>
+                </>
+              )}
               <ConfidenceBadge confidence={deal.match_confidence} />
               {deal.variant_spread_warning && (
                 <AlertTriangle
@@ -514,53 +518,93 @@ function DealRow({ deal, onOpen }: { deal: Deal; onOpen: () => void }) {
               )}
             </p>
           </div>
-          <StrikeLine
-            strikeUsd={strikeUsd}
-            buyUsd={buyUsd}
-            sellEur={sellEur}
-            profitEur={profitEur}
-            marginPct={marginPct}
-          />
+
+          <div className="border-t pt-2">
+            <PriceLine
+              label="US"
+              primary={formatCurrency(buyUsd, "USD")}
+              secondary={buyEur != null ? formatCurrency(buyEur, "EUR") : null}
+            />
+            <PriceLine
+              label="EU"
+              primary={formatCurrency(sellEur, "EUR")}
+              secondary={sellUsd != null ? formatCurrency(sellUsd, "USD") : null}
+            />
+          </div>
+
+          <div className="border-t pt-2">
+            <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-base">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Arbitrage
+              </span>
+              <span className="font-bold tabular-nums text-emerald-600 dark:text-emerald-500">
+                +{formatCurrency(profitEur, "EUR")}
+              </span>
+              {profitUsd != null && (
+                <span className="text-sm font-semibold tabular-nums text-emerald-600/80 dark:text-emerald-500/80">
+                  · +{formatCurrency(profitUsd, "USD")}
+                </span>
+              )}
+            </div>
+            <div className="flex items-baseline gap-x-2 text-xs">
+              <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Margin
+              </span>
+              <span className={cn("font-semibold tabular-nums", marginColorClass(marginPct))}>
+                {marginPct.toFixed(1)}%
+              </span>
+            </div>
+          </div>
+
+          {hasEbay ? (
+            <a
+              href={ebayUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={(e) => e.stopPropagation()}
+              className="-mx-3 -mb-3 mt-1 flex items-center gap-1.5 border-t bg-muted/30 px-3 py-2 text-xs hover:bg-muted/60"
+            >
+              <ShoppingCart className="h-3.5 w-3.5 shrink-0" />
+              <span className="truncate">
+                <span className="font-semibold">{ebayCount}</span> eBay listing{ebayCount === 1 ? "" : "s"}
+                {ebayBest != null && (
+                  <>
+                    {" "}· best{" "}
+                    <span className="font-semibold">{formatCurrency(ebayBest, "USD")}</span>
+                  </>
+                )}
+              </span>
+              <ExternalLink className="ml-auto h-3 w-3 shrink-0 text-muted-foreground" />
+            </a>
+          ) : (
+            <div className="-mx-3 -mb-3 mt-1 flex items-center gap-1.5 border-t bg-muted/20 px-3 py-2 text-xs text-muted-foreground">
+              <ShoppingCart className="h-3.5 w-3.5 shrink-0" />
+              <span>No eBay data yet</span>
+            </div>
+          )}
         </div>
       </div>
-    </button>
+    </div>
   );
 }
 
-function StrikeLine({
-  strikeUsd,
-  buyUsd,
-  sellEur,
-  profitEur,
-  marginPct,
+function PriceLine({
+  label,
+  primary,
+  secondary,
 }: {
-  strikeUsd: number | null;
-  buyUsd: number;
-  sellEur: number;
-  profitEur: number;
-  marginPct: number;
+  label: string;
+  primary: string;
+  secondary: string | null;
 }) {
   return (
-    <div className="space-y-1">
-      <div className="flex flex-wrap items-baseline gap-x-2">
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-          Buy up to
-        </span>
-        <span className="text-xl font-extrabold tabular-nums text-amber-600 dark:text-amber-400">
-          {strikeUsd != null ? formatStrikeUsd(strikeUsd) : "—"}
-        </span>
-        <MarginStars marginPct={marginPct} />
-      </div>
-      <p className="text-xs text-muted-foreground tabular-nums">
-        Currently {formatCurrency(buyUsd, "USD")} US → {formatCurrency(sellEur, "EUR")} EU
-      </p>
-      <p className="text-xs tabular-nums">
-        <span className="font-semibold text-emerald-600 dark:text-emerald-500">
-          +{formatCurrency(profitEur, "EUR")}
-        </span>
-        <span className="ml-1 text-muted-foreground">({marginPct.toFixed(1)}%)</span>
-      </p>
-    </div>
+    <p className="flex items-baseline gap-x-2 text-sm tabular-nums">
+      <span className="w-6 shrink-0 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {label}
+      </span>
+      <span className="font-semibold">{primary}</span>
+      {secondary && <span className="text-xs text-muted-foreground">({secondary})</span>}
+    </p>
   );
 }
 
@@ -689,6 +733,8 @@ function DealDetailContent({ deal }: { deal: Deal }) {
           ({marginPct.toFixed(1)}%)
         </p>
       </div>
+
+      <EbayListingsSection cardId={deal.card_id} />
 
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm">
@@ -850,6 +896,92 @@ function PriceLadder({
         <dd className="tabular-nums">{formatCurrency(max, currency)}</dd>
       </div>
     </dl>
+  );
+}
+
+function EbayListingsSection({ cardId }: { cardId: string }) {
+  const listingsQuery = useQuery<EbayListing[]>({
+    queryKey: ["ebay_listings", cardId],
+    queryFn: async () => {
+      const supabase = createClient();
+      const nowIso = new Date().toISOString();
+      const { data, error } = (await supabase
+        .from("ebay_listings" as never)
+        .select(
+          "title, price_usd, shipping_usd, total_usd, condition, seller_username, seller_feedback_pct, item_url, is_auction",
+        )
+        .eq("card_id" as never, cardId as never)
+        .gt("expires_at" as never, nowIso as never)
+        .gt("total_usd" as never, 0 as never)
+        .order("total_usd", { ascending: true })
+        .limit(5)) as unknown as {
+        data: EbayListing[] | null;
+        error: { message: string } | null;
+      };
+      if (error) throw new Error(error.message);
+      return data ?? [];
+    },
+  });
+
+  if (listingsQuery.isLoading) {
+    return (
+      <div className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+        Loading eBay listings…
+      </div>
+    );
+  }
+
+  const listings = listingsQuery.data ?? [];
+  if (listings.length === 0) return null;
+
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        <ShoppingCart className="h-3.5 w-3.5" />
+        Active eBay listings
+      </p>
+      <ul className="space-y-2">
+        {listings.map((listing, i) => (
+          <li key={`${listing.item_url}-${i}`} className="text-xs">
+            <a
+              href={listing.item_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="group flex items-baseline gap-2 hover:underline"
+            >
+              <span className="w-20 shrink-0 font-semibold tabular-nums">
+                {formatCurrency(num(listing.total_usd), "USD")}
+              </span>
+              <span className="min-w-0 flex-1 truncate">
+                {listing.title}
+                {listing.is_auction ? (
+                  <span className="ml-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+                    auction
+                  </span>
+                ) : null}
+              </span>
+              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground" />
+            </a>
+            {listing.seller_username && (
+              <p className="ml-[88px] text-[10px] text-muted-foreground">
+                Sold by {listing.seller_username}
+                {listing.seller_feedback_pct != null && (
+                  <> · ★{num(listing.seller_feedback_pct).toFixed(1)}%</>
+                )}
+                {listing.condition && <> · {listing.condition}</>}
+              </p>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-3 flex items-start gap-1.5 text-[10px] text-muted-foreground">
+        <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" />
+        <span>
+          eBay search may include related products (single packs, hangers, ETBs). Verify the
+          exact SKU before purchasing.
+        </span>
+      </p>
+    </div>
   );
 }
 
