@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search } from "lucide-react";
+import { Search, Sparkles, Package } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Input } from "@/components/ui/input";
 import { CardImage } from "@/components/ui/card-image";
-import { titleCase } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
 export type CardHit = {
@@ -17,7 +17,12 @@ export type CardHit = {
   set_code: string | null;
   card_number: string | null;
   rarity: string | null;
+  language: string | null;
+  is_foil: boolean | null;
+  is_sealed: boolean | null;
   image_url: string | null;
+  release_year: number | null;
+  release_date: string | null;
 };
 
 type Props = {
@@ -29,6 +34,43 @@ type Props = {
 
 const THUMB_W = 40;
 const THUMB_H = 56;
+
+const GAME_LABELS: Record<string, string> = {
+  pokemon: "Pokémon",
+  one_piece: "One Piece",
+  magic: "Magic",
+  lorcana: "Lorcana",
+  yugioh: "Yu-Gi-Oh!",
+  other: "Other",
+};
+
+export function gameLabel(game: string | null | undefined) {
+  if (!game) return "";
+  return GAME_LABELS[game] ?? game.replace(/_/g, " ");
+}
+
+function rarityColor(rarity: string | null | undefined) {
+  if (!rarity) return "";
+  const r = rarity.toLowerCase();
+  if (r === "common") return "text-muted-foreground";
+  if (r === "uncommon") return "text-blue-600 dark:text-blue-400";
+  if (
+    r.includes("rare") ||
+    r.includes("ultra") ||
+    r.includes("special") ||
+    r.includes("illustration") ||
+    r.includes("secret") ||
+    r.includes("holo") ||
+    r === "l" ||
+    r === "sr" ||
+    r === "sec"
+  ) {
+    return "text-amber-600 dark:text-amber-400";
+  }
+  return "text-muted-foreground";
+}
+
+const YEAR_RE = /\b(19|20)\d{2}\b/;
 
 export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Props) {
   const [query, setQuery] = useState("");
@@ -50,15 +92,22 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  const enabled = debounced.length >= 2;
+  const { searchTerm, yearFilter } = useMemo(() => {
+    const m = debounced.match(YEAR_RE);
+    if (!m) return { searchTerm: debounced, yearFilter: null as number | null };
+    const stripped = debounced.replace(YEAR_RE, "").replace(/\s+/g, " ").trim();
+    return { searchTerm: stripped || debounced, yearFilter: parseInt(m[0], 10) };
+  }, [debounced]);
+
+  const enabled = searchTerm.length >= 2;
   const { data, isFetching } = useQuery<CardHit[]>({
-    queryKey: ["search_cards", debounced, game ?? "all", limit],
+    queryKey: ["search_cards", searchTerm, game ?? "all", limit],
     enabled,
     staleTime: 30_000,
     queryFn: async () => {
       const supabase = createClient();
       const { data, error } = await supabase.rpc("search_cards" as never, {
-        p_query: debounced,
+        p_query: searchTerm,
         p_game: game ?? null,
         p_limit: limit,
       } as never);
@@ -67,7 +116,11 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
     },
   });
 
-  const results = data ?? [];
+  const results = useMemo(() => {
+    const all = data ?? [];
+    if (yearFilter == null) return all;
+    return all.filter((r) => r.release_year === yearFilter || r.release_year == null);
+  }, [data, yearFilter]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (!open || results.length === 0) return;
@@ -131,10 +184,10 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
                     aria-selected={i === activeIndex}
                     onMouseEnter={() => setActiveIndex(i)}
                     onClick={() => pick(c)}
-                    className={
-                      "flex w-full items-center gap-3 px-3 py-2 text-left " +
-                      (i === activeIndex ? "bg-accent" : "hover:bg-accent/60")
-                    }
+                    className={cn(
+                      "flex w-full items-start gap-3 px-3 py-2 text-left",
+                      i === activeIndex ? "bg-accent" : "hover:bg-accent/60",
+                    )}
                   >
                     <CardImage
                       src={c.image_url}
@@ -144,18 +197,37 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
                       fallbackText=""
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium">{c.name}</p>
+                      <div className="flex items-start gap-2">
+                        <p className="min-w-0 flex-1 truncate text-sm font-medium">
+                          {c.name}
+                        </p>
+                        <div className="flex shrink-0 items-center gap-1">
+                          {c.is_foil && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:text-amber-400">
+                              <Sparkles className="h-2.5 w-2.5" />
+                              Foil
+                            </span>
+                          )}
+                          {c.is_sealed && (
+                            <span className="inline-flex items-center gap-0.5 rounded bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-medium text-emerald-700 dark:text-emerald-400">
+                              <Package className="h-2.5 w-2.5" />
+                              Sealed
+                            </span>
+                          )}
+                          {c.set_code && (
+                            <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
+                              {c.set_code}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                      <p className="truncate text-xs text-foreground/80">
+                        {formatSetLine(c)}
+                      </p>
                       <p className="truncate text-xs text-muted-foreground">
-                        {c.set_name ?? titleCase(c.game)}
-                        {c.card_number ? ` · #${c.card_number}` : ""}
-                        {c.rarity ? ` · ${c.rarity}` : ""}
+                        <MetaLine card={c} />
                       </p>
                     </div>
-                    {c.set_code && (
-                      <span className="shrink-0 rounded bg-muted px-1.5 py-0.5 font-mono text-[10px] uppercase text-muted-foreground">
-                        {c.set_code}
-                      </span>
-                    )}
                   </button>
                 </li>
               ))}
@@ -166,3 +238,45 @@ export function CardSearchInput({ game, limit = 20, placeholder, onSelect }: Pro
     </div>
   );
 }
+
+export function formatSetLine(c: Pick<CardHit, "set_name" | "set_code" | "release_year">) {
+  if (c.set_name && c.release_year) return `${c.set_name} (${c.release_year})`;
+  if (c.set_name) return c.set_name;
+  if (c.set_code) return c.set_code;
+  return "";
+}
+
+function MetaLine({
+  card: c,
+}: {
+  card: Pick<CardHit, "game" | "card_number" | "rarity" | "language" | "is_sealed">;
+}) {
+  const segments: React.ReactNode[] = [];
+  segments.push(<span key="game">{gameLabel(c.game)}</span>);
+  if (c.is_sealed && !c.card_number && !c.rarity) {
+    segments.push(<span key="sealed">Sealed</span>);
+  } else {
+    if (c.card_number) segments.push(<span key="num">{`#${c.card_number}`}</span>);
+    if (c.rarity)
+      segments.push(
+        <span key="rarity" className={rarityColor(c.rarity)}>
+          {c.rarity}
+        </span>,
+      );
+  }
+  if (c.language && c.language.toLowerCase() !== "en") {
+    segments.push(<span key="lang">{c.language.toUpperCase()}</span>);
+  }
+  return (
+    <>
+      {segments.map((s, i) => (
+        <span key={i}>
+          {i > 0 ? " · " : ""}
+          {s}
+        </span>
+      ))}
+    </>
+  );
+}
+
+export { rarityColor };

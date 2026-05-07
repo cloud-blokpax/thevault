@@ -16,9 +16,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { CardSearchInput, type CardHit } from "@/components/card-search-input";
+import {
+  CardSearchInput,
+  formatSetLine,
+  gameLabel,
+  type CardHit,
+} from "@/components/card-search-input";
 import { CardImage } from "@/components/ui/card-image";
-import { titleCase } from "@/lib/utils";
 import type { Enums } from "@/types/database";
 
 export const runtime = "edge";
@@ -58,7 +62,9 @@ export default function NewInventoryItemPage() {
       const supabase = createClient();
       const { data, error } = await supabase
         .from("cards")
-        .select("id, game, name, set_name, set_code, card_number, rarity, image_url")
+        .select(
+          "id, game, name, set_name, set_code, card_number, rarity, language, is_foil, is_sealed, image_url",
+        )
         .eq("id", prefillCardId!)
         .maybeSingle();
       if (error) throw error;
@@ -71,7 +77,12 @@ export default function NewInventoryItemPage() {
           set_code: data.set_code,
           card_number: data.card_number,
           rarity: data.rarity,
+          language: data.language,
+          is_foil: data.is_foil,
+          is_sealed: data.is_sealed,
           image_url: data.image_url,
+          release_year: null,
+          release_date: null,
         });
       }
       return data;
@@ -134,7 +145,7 @@ export default function NewInventoryItemPage() {
                 <SelectContent>
                   {GAMES.map((g) => (
                     <SelectItem key={g} value={g}>
-                      {g === "all" ? "All games" : titleCase(g)}
+                      {g === "all" ? "All games" : gameLabel(g)}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -161,10 +172,18 @@ export default function NewInventoryItemPage() {
               />
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-semibold">{picked.name}</p>
+                <p className="truncate text-xs text-foreground/80">
+                  {formatSetLine(picked) || gameLabel(picked.game)}
+                </p>
                 <p className="truncate text-xs text-muted-foreground">
-                  {picked.set_name ?? titleCase(picked.game)}
-                  {picked.set_code ? ` · ${picked.set_code}` : ""}
-                  {picked.card_number ? ` · #${picked.card_number}` : ""}
+                  {[
+                    gameLabel(picked.game),
+                    picked.card_number ? `#${picked.card_number}` : null,
+                    picked.rarity,
+                    picked.set_code,
+                  ]
+                    .filter(Boolean)
+                    .join(" · ")}
                 </p>
               </div>
               <Button variant="ghost" size="sm" onClick={() => setPicked(null)}>
