@@ -1,10 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,11 +37,50 @@ const GAMES: ("all" | Enums<"game_kind">)[] = [
 export default function NewInventoryItemPage() {
   const router = useRouter();
   const qc = useQueryClient();
+  const searchParams = useSearchParams();
+  const prefillCardId = searchParams.get("card_id");
+  const prefillBuyCost = searchParams.get("buy_cost_local") ?? "";
+  const prefillBuyCcyRaw = searchParams.get("buy_currency");
+  const prefillBuyCcy = (CURRENCIES as readonly string[]).includes(prefillBuyCcyRaw ?? "")
+    ? (prefillBuyCcyRaw as Enums<"currency_code">)
+    : "EUR";
+
   const [game, setGame] = useState<(typeof GAMES)[number]>("all");
   const [picked, setPicked] = useState<CardHit | null>(null);
-  const [buyCost, setBuyCost] = useState("");
-  const [buyCcy, setBuyCcy] = useState<Enums<"currency_code">>("EUR");
+  const [buyCost, setBuyCost] = useState(prefillBuyCost);
+  const [buyCcy, setBuyCcy] = useState<Enums<"currency_code">>(prefillBuyCcy);
   const [source, setSource] = useState("");
+
+  useQuery({
+    queryKey: ["prefill-card", prefillCardId],
+    enabled: !!prefillCardId && !picked,
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("cards")
+        .select("id, game, name, set_name, set_code, card_number, rarity, image_url")
+        .eq("id", prefillCardId!)
+        .maybeSingle();
+      if (error) throw error;
+      if (data) {
+        setPicked({
+          id: data.id,
+          game: data.game,
+          name: data.name,
+          set_name: data.set_name,
+          set_code: data.set_code,
+          card_number: data.card_number,
+          rarity: data.rarity,
+          image_url: data.image_url,
+        });
+      }
+      return data;
+    },
+  });
+
+  useEffect(() => {
+    if (prefillBuyCost && !buyCost) setBuyCost(prefillBuyCost);
+  }, [prefillBuyCost, buyCost]);
 
   const create = useMutation({
     mutationFn: async () => {
