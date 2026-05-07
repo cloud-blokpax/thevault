@@ -50,6 +50,16 @@ export default function CalculatorPage() {
   );
 }
 
+function resolveBreakdownCurrency(
+  data: Breakdown | undefined,
+  fallback: Enums<"currency_code">,
+): Enums<"currency_code"> {
+  const raw = typeof data?.currency === "string" ? data.currency.toUpperCase() : "";
+  return (CURRENCIES as readonly string[]).includes(raw)
+    ? (raw as Enums<"currency_code">)
+    : fallback;
+}
+
 function FloorPriceForm() {
   const [buyCost, setBuyCost] = useState("");
   const [buyCcy, setBuyCcy] = useState<Enums<"currency_code">>("EUR");
@@ -135,7 +145,12 @@ function FloorPriceForm() {
           </p>
         )}
 
-        {mutation.data && <ResultBreakdown data={mutation.data} />}
+        {mutation.data && (
+          <ResultBreakdown
+            data={mutation.data}
+            currency={resolveBreakdownCurrency(mutation.data, buyCcy)}
+          />
+        )}
       </CardContent>
     </Card>
   );
@@ -143,7 +158,7 @@ function FloorPriceForm() {
 
 function MaxBuyForm() {
   const [target, setTarget] = useState("");
-  const [sellCcy, setSellCcy] = useState<Enums<"currency_code">>("USD");
+  const [sellCcy, setSellCcy] = useState<Enums<"currency_code">>("EUR");
   const [travel, setTravel] = useState("");
   const [fx, setFx] = useState("");
   const [marginCd, setMarginCd] = useState("");
@@ -226,16 +241,19 @@ function MaxBuyForm() {
           </p>
         )}
 
-        {mutation.data && <ResultBreakdown data={mutation.data} />}
+        {mutation.data && (
+          <ResultBreakdown
+            data={mutation.data}
+            currency={resolveBreakdownCurrency(mutation.data, sellCcy)}
+          />
+        )}
       </CardContent>
     </Card>
   );
 }
 
-function ResultBreakdown({ data }: { data: Breakdown }) {
+function ResultBreakdown({ data, currency }: { data: Breakdown; currency: string }) {
   const entries = Object.entries(data ?? {});
-  const currency =
-    typeof data?.currency === "string" ? data.currency.toUpperCase() : "USD";
   return (
     <div className="mt-6 rounded-lg border bg-muted/30 p-4">
       <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
