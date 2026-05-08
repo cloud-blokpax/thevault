@@ -257,6 +257,121 @@ export type Database = {
           },
         ]
       }
+      product_drops: {
+        Row: {
+          id: string
+          game: Database["public"]["Enums"]["game_kind"]
+          name: string
+          set_code: string | null
+          set_name: string | null
+          product_type: string | null
+          image_url: string | null
+          release_date: string | null
+          msrp_usd: number | null
+          msrp_eur: number | null
+          notes: string | null
+          status: "upcoming" | "live" | "released"
+          card_id: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          game: Database["public"]["Enums"]["game_kind"]
+          name: string
+          set_code?: string | null
+          set_name?: string | null
+          product_type?: string | null
+          image_url?: string | null
+          release_date?: string | null
+          msrp_usd?: number | null
+          msrp_eur?: number | null
+          notes?: string | null
+          status?: "upcoming" | "live" | "released"
+          card_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          game?: Database["public"]["Enums"]["game_kind"]
+          name?: string
+          set_code?: string | null
+          set_name?: string | null
+          product_type?: string | null
+          image_url?: string | null
+          release_date?: string | null
+          msrp_usd?: number | null
+          msrp_eur?: number | null
+          notes?: string | null
+          status?: "upcoming" | "live" | "released"
+          card_id?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "product_drops_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "cards"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drop_retailer_links: {
+        Row: {
+          id: string
+          drop_id: string
+          retailer: string
+          region: string
+          url: string
+          price_usd: number | null
+          price_eur: number | null
+          in_stock: boolean | null
+          notes: string | null
+          sort_order: number
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          drop_id: string
+          retailer: string
+          region?: string
+          url: string
+          price_usd?: number | null
+          price_eur?: number | null
+          in_stock?: boolean | null
+          notes?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          drop_id?: string
+          retailer?: string
+          region?: string
+          url?: string
+          price_usd?: number | null
+          price_eur?: number | null
+          in_stock?: boolean | null
+          notes?: string | null
+          sort_order?: number
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drop_retailer_links_drop_id_fkey"
+            columns: ["drop_id"]
+            isOneToOne: false
+            referencedRelation: "product_drops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       prices: {
         Row: {
           captured_at: string
