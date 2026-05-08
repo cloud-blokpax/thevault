@@ -8,16 +8,15 @@ import {
   Plane,
   Calculator,
   Settings as SettingsIcon,
-  Target,
+  PackagePlus,
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { FxWidget } from "@/components/layout/fx-widget";
 
 const NAV_ITEMS = [
-  { href: "/buy", label: "Buy", icon: Target },
-  { href: "/deals", label: "Deals", icon: TrendingUp },
   { href: "/inventory", label: "Inventory", icon: Boxes },
+  { href: "/drops", label: "Drops", icon: PackagePlus },
+  { href: "/deals", label: "Deals", icon: TrendingUp },
   { href: "/calculator", label: "Calc", icon: Calculator },
   { href: "/trips", label: "Trips", icon: Plane },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
@@ -82,9 +81,6 @@ export function DesktopNav({ email }: { email?: string | null }) {
           );
         })}
       </nav>
-      <div className="border-t p-3 pb-2">
-        <FxWidget />
-      </div>
       <form action="/api/auth/signout" method="post" className="border-t p-3">
         {email && (
           <p className="mb-2 truncate px-1 text-xs text-muted-foreground" title={email}>
