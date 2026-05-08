@@ -2,8 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { Calculator as CalculatorIcon, Plus, RefreshCw } from "lucide-react";
+import { useMutation, useQueries, useQuery } from "@tanstack/react-query";
+import {
+  Calculator as CalculatorIcon,
+  Plus,
+  RefreshCw,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -20,7 +26,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { CardImage } from "@/components/ui/card-image";
 import { CardSearchInput, type CardHit, formatSetLine } from "@/components/card-search-input";
 import { type ProvenanceRow, num } from "@/lib/deals";
-import { formatCurrency, titleCase } from "@/lib/utils";
+import { cn, formatCurrency, titleCase } from "@/lib/utils";
+import { fxRateOn } from "@/lib/supabase/fx";
 import type { Enums } from "@/types/database";
 
 export const runtime = "edge";
@@ -34,12 +41,10 @@ type CardPricing = {
   us_market: number | null;
   us_high: number | null;
   us_currency: string;
-  us_captured_at: string | null;
   eu_low: number | null;
   eu_market: number | null;
   eu_avg30: number | null;
   eu_currency: string;
-  eu_captured_at: string | null;
 };
 
 function summarizePricing(rows: ProvenanceRow[]): CardPricing {
@@ -50,13 +55,113 @@ function summarizePricing(rows: ProvenanceRow[]): CardPricing {
     us_market: us?.price_market != null ? num(us.price_market) : null,
     us_high: us?.price_high != null ? num(us.price_high) : null,
     us_currency: us?.currency || "USD",
-    us_captured_at: us?.captured_at ?? null,
     eu_low: eu?.price_low != null ? num(eu.price_low) : null,
     eu_market: eu?.price_market != null ? num(eu.price_market) : null,
     eu_avg30: eu?.cm_avg30 != null ? num(eu.cm_avg30) : null,
     eu_currency: eu?.currency || "EUR",
-    eu_captured_at: eu?.captured_at ?? null,
   };
+}
+
+function resolveBreakdownCurrency(
+  data: Breakdown | undefined,
+  fallback: Enums<"currency_code">,
+): Enums<"currency_code"> {
+  const candidates = [
+    typeof data?.sell_currency === "string" ? data.sell_currency : "",
+    typeof data?.currency === "string" ? data.currency : "",
+  ].map((c) => c.toUpperCase());
+  for (const c of candidates) {
+    if ((CURRENCIES as readonly string[]).includes(c)) {
+      return c as Enums<"currency_code">;
+    }
+  }
+  return fallback;
+}
+
+function useHistoricalFx(
+  date: string,
+  base: Enums<"currency_code">,
+  quote: Enums<"currency_code">,
+) {
+  const enabled =
+    !!date &&
+    /^\d{4}-\d{2}-\d{2}$/.test(date) &&
+    base !== quote;
+  return useQuery({
+    queryKey: ["calc-fx", date || "today", base, quote],
+    enabled,
+    staleTime: 60_000,
+    queryFn: async () => {
+      const supabase = createClient();
+      return await fxRateOn(supabase, date, base, quote);
+    },
+  });
+}
+
+function FxHint({
+  date,
+  base,
+  quote,
+  fxOverride,
+  onResolved,
+}: {
+  date: string;
+  base: Enums<"currency_code">;
+  quote: Enums<"currency_code">;
+  fxOverride: string;
+  onResolved: (rate: number | null) => void;
+}) {
+  const fx = useHistoricalFx(date, base, quote);
+
+  useEffect(() => {
+    if (fxOverride.trim() !== "") {
+      onResolved(null);
+      return;
+    }
+    if (!date) {
+      onResolved(null);
+      return;
+    }
+    if (fx.data) {
+      onResolved(Number(fx.data.rate));
+    }
+  }, [fx.data, fxOverride, date, onResolved]);
+
+  if (fxOverride.trim() !== "") {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: {Number(fxOverride).toFixed(4)} (manual override)
+      </p>
+    );
+  }
+  if (base === quote) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: 1.0000 (same currency)
+      </p>
+    );
+  }
+  if (!date) {
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        Using today&apos;s FX (no date set).
+      </p>
+    );
+  }
+  if (fx.isLoading) {
+    return <p className="text-[11px] text-muted-foreground">Looking up FX…</p>;
+  }
+  if (fx.data) {
+    const tag = fx.data.is_exact_match
+      ? `${fx.data.rate_date} — historical`
+      : `${fx.data.rate_date} (${fx.data.days_back}d back) — historical`;
+    return (
+      <p className="text-[11px] text-muted-foreground">
+        FX rate: {Number(fx.data.rate).toFixed(4)} ({tag})
+      </p>
+    );
+  }
+  return null;
 }
 
 export default function CalculatorPage() {
@@ -178,7 +283,7 @@ function PricingSummary({ pricing }: { pricing: CardPricing }) {
           US (TCGplayer)
         </p>
         <dl className="space-y-0.5">
-          <Row label="Lowest list" value={pricing.us_low} currency={pricing.us_currency} />
+          <Row label="Lowest" value={pricing.us_low} currency={pricing.us_currency} />
           <Row label="Market" value={pricing.us_market} currency={pricing.us_currency} highlight />
           <Row label="High" value={pricing.us_high} currency={pricing.us_currency} />
         </dl>
@@ -188,7 +293,7 @@ function PricingSummary({ pricing }: { pricing: CardPricing }) {
           EU (Cardmarket)
         </p>
         <dl className="space-y-0.5">
-          <Row label="Lowest list" value={pricing.eu_low} currency={pricing.eu_currency} highlight />
+          <Row label="Lowest" value={pricing.eu_low} currency={pricing.eu_currency} highlight />
           <Row label="Trend" value={pricing.eu_market} currency={pricing.eu_currency} />
           <Row label="30-day avg" value={pricing.eu_avg30} currency={pricing.eu_currency} />
         </dl>
@@ -222,7 +327,7 @@ function FloorPriceForm({
   pricing,
   cardId,
 }: {
-  pricing: CardPricing | null;
+  pricing?: CardPricing | null;
   cardId?: string;
 }) {
   const [buyCost, setBuyCost] = useState("");
@@ -231,8 +336,13 @@ function FloorPriceForm({
   const [fx, setFx] = useState("");
   const [marginCd, setMarginCd] = useState("");
   const [marginPp, setMarginPp] = useState("");
+  const [purchaseDate, setPurchaseDate] = useState("");
+  const [resolvedFx, setResolvedFx] = useState<number | null>(null);
 
-  // Auto-fill from US market when pricing arrives, but only if user hasn't typed.
+  const sellCcy: Enums<"currency_code"> = buyCcy === "USD" ? "EUR" : "USD";
+
+  // Auto-fill buy cost from US market when pricing arrives, but only if the
+  // user hasn't typed.
   useEffect(() => {
     if (pricing?.us_market != null && buyCost === "") {
       setBuyCost(String(pricing.us_market));
@@ -244,11 +354,17 @@ function FloorPriceForm({
   const mutation = useMutation({
     mutationFn: async () => {
       const supabase = createClient();
+      const fxToUse =
+        fx.trim() !== ""
+          ? Number(fx)
+          : resolvedFx != null
+            ? resolvedFx
+            : undefined;
       const { data, error } = await supabase.rpc("calc_floor_price", {
         p_buy_cost_local: Number(buyCost),
         p_buy_currency: buyCcy,
         p_allocated_travel: travel ? Number(travel) : 0,
-        p_fx_rate: fx ? Number(fx) : undefined,
+        p_fx_rate: fxToUse,
         p_margin_cd: marginCd ? Number(marginCd) : undefined,
         p_margin_pp: marginPp ? Number(marginPp) : undefined,
       });
@@ -257,7 +373,7 @@ function FloorPriceForm({
     },
   });
 
-  // Auto-recalc when buy cost is auto-populated
+  // Auto-recalc when the US market price arrives (so the breakdown is filled in).
   useEffect(() => {
     if (buyCost && Number(buyCost) > 0 && !mutation.data && !mutation.isPending) {
       mutation.mutate();
@@ -268,6 +384,9 @@ function FloorPriceForm({
   const inventoryHref = cardId
     ? `/inventory/new?card_id=${encodeURIComponent(cardId)}&buy_cost_local=${buyCost}&buy_currency=${buyCcy}&sell_currency=EUR`
     : null;
+
+  const buyCostNum = Number(buyCost);
+  const showSensitivity = buyCostNum > 0 && !!mutation.data;
 
   return (
     <Card>
@@ -313,6 +432,21 @@ function FloorPriceForm({
                 ))}
               </SelectContent>
             </Select>
+          </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label className="text-xs">Purchase date (optional)</Label>
+            <Input
+              type="date"
+              value={purchaseDate}
+              onChange={(e) => setPurchaseDate(e.target.value)}
+            />
+            <FxHint
+              date={purchaseDate}
+              base={buyCcy}
+              quote={sellCcy}
+              fxOverride={fx}
+              onResolved={setResolvedFx}
+            />
           </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Allocated travel</Label>
@@ -373,13 +507,29 @@ function FloorPriceForm({
         )}
 
         {mutation.data && (
-          <ResultBreakdown data={mutation.data} fallbackCurrency="EUR" />
+          <ResultBreakdown
+            data={mutation.data}
+            currency={resolveBreakdownCurrency(mutation.data, sellCcy)}
+          />
         )}
 
         {pricing?.eu_low != null && mutation.data && (
           <ProfitHint
-            floor={typeof mutation.data.floor === "number" ? mutation.data.floor : null}
+            floor={typeof mutation.data.floor_price === "number" ? mutation.data.floor_price : null}
             euLow={pricing.eu_low}
+          />
+        )}
+
+        {showSensitivity && (
+          <SensitivityPanel
+            buyCost={buyCostNum}
+            buyCcy={buyCcy}
+            travel={travel ? Number(travel) : 0}
+            baselineFx={
+              typeof mutation.data?.fx_rate === "number" ? mutation.data.fx_rate : undefined
+            }
+            referencePrice={pricing?.eu_low ?? null}
+            referenceCurrency={pricing?.eu_currency ?? "EUR"}
           />
         )}
       </CardContent>
@@ -387,11 +537,342 @@ function FloorPriceForm({
   );
 }
 
+// ---------- Sensitivity Panel ----------
+
+const MARGIN_PROFILES = [
+  { id: "tight", label: "Tight", cd: 0.05, pp: 0.05, total: 0.1 },
+  { id: "standard", label: "Standard", cd: 0.1, pp: 0.1, total: 0.2 },
+  { id: "conservative", label: "Conservative", cd: 0.2, pp: 0.1, total: 0.3 },
+] as const;
+
+const FX_SCENARIOS = [
+  { id: "down", label: "FX −3%", multiplier: 0.97 },
+  { id: "base", label: "Baseline", multiplier: 1 },
+  { id: "up", label: "FX +3%", multiplier: 1.03 },
+] as const;
+
+type CellKey = `${(typeof MARGIN_PROFILES)[number]["id"]}-${(typeof FX_SCENARIOS)[number]["id"]}`;
+
+function SensitivityPanel({
+  buyCost,
+  buyCcy,
+  travel,
+  baselineFx,
+  referencePrice,
+  referenceCurrency,
+}: {
+  buyCost: number;
+  buyCcy: Enums<"currency_code">;
+  travel: number;
+  baselineFx?: number;
+  referencePrice: number | null;
+  referenceCurrency: string;
+}) {
+  // Build the 9 cells (3 margin profiles × 3 FX scenarios). React Query
+  // batches and caches them keyed off all inputs, so editing any field
+  // re-runs only the cells that changed.
+  const cells = useMemo(() => {
+    const out: Array<{
+      key: CellKey;
+      margin: (typeof MARGIN_PROFILES)[number];
+      fx: (typeof FX_SCENARIOS)[number];
+    }> = [];
+    for (const margin of MARGIN_PROFILES) {
+      for (const fx of FX_SCENARIOS) {
+        out.push({ key: `${margin.id}-${fx.id}` as CellKey, margin, fx });
+      }
+    }
+    return out;
+  }, []);
+
+  const queries = useQueries({
+    queries: cells.map(({ margin, fx }) => ({
+      queryKey: [
+        "calc.sensitivity",
+        buyCost,
+        buyCcy,
+        travel,
+        baselineFx ?? null,
+        margin.id,
+        fx.id,
+      ],
+      queryFn: async () => {
+        const supabase = createClient();
+        const fxRate = baselineFx != null ? baselineFx * fx.multiplier : undefined;
+        const { data, error } = await supabase.rpc("calc_floor_price", {
+          p_buy_cost_local: buyCost,
+          p_buy_currency: buyCcy,
+          p_allocated_travel: travel,
+          p_fx_rate: fxRate,
+          p_margin_cd: margin.cd,
+          p_margin_pp: margin.pp,
+        });
+        if (error) throw error;
+        return data as Breakdown;
+      },
+      staleTime: 30_000,
+    })),
+  });
+
+  const isLoading = queries.some((q) => q.isLoading);
+  const anyError = queries.find((q) => q.error)?.error as Error | undefined;
+
+  // Pick the canonical sell currency from the first successful cell.
+  const sellCurrency = (() => {
+    const firstSuccess = queries.find((q) => q.data);
+    const ccy = firstSuccess?.data?.sell_currency ?? firstSuccess?.data?.currency;
+    return typeof ccy === "string" ? ccy : "EUR";
+  })();
+
+  // Identify the standard/baseline cell so we can express others relative to it.
+  const baselineIdx = cells.findIndex(
+    (c) => c.margin.id === "standard" && c.fx.id === "base",
+  );
+  const baselineFloor = (() => {
+    const v = queries[baselineIdx]?.data?.floor_price;
+    return typeof v === "number" ? v : null;
+  })();
+
+  // Decide green/red for cells based on whether they survive vs reference EU price.
+  // If no reference price, color by headroom against the baseline cell.
+  const evaluate = (floor: number | null) => {
+    if (floor == null) return { tone: "neutral" as const, deltaPct: null as number | null };
+    if (referencePrice != null && referencePrice > 0) {
+      const deltaPct = ((referencePrice - floor) / floor) * 100;
+      const tone = deltaPct >= 5 ? "good" : deltaPct >= 0 ? "ok" : "bad";
+      return { tone, deltaPct };
+    }
+    if (baselineFloor != null && baselineFloor > 0) {
+      const deltaPct = ((floor - baselineFloor) / baselineFloor) * 100;
+      const tone = deltaPct === 0 ? "neutral" : deltaPct < 0 ? "good" : "bad";
+      return { tone, deltaPct };
+    }
+    return { tone: "neutral" as const, deltaPct: null };
+  };
+
+  return (
+    <div className="mt-5 rounded-lg border bg-card">
+      <div className="flex items-baseline justify-between gap-2 border-b p-3">
+        <div>
+          <p className="text-sm font-semibold">Sensitivity</p>
+          <p className="text-xs text-muted-foreground">
+            {referencePrice != null
+              ? `Floor vs current EU lowest (${formatCurrency(referencePrice, referenceCurrency)})`
+              : "Floor across margin profiles and FX scenarios"}
+          </p>
+        </div>
+        {anyError && (
+          <p className="text-xs text-destructive">{anyError.message}</p>
+        )}
+      </div>
+
+      <div className="overflow-x-auto">
+        <table className="w-full text-xs">
+          <thead className="bg-muted/30">
+            <tr>
+              <th className="px-3 py-2 text-left font-semibold uppercase tracking-wide text-muted-foreground">
+                Margin
+              </th>
+              {FX_SCENARIOS.map((fx) => (
+                <th
+                  key={fx.id}
+                  className="px-3 py-2 text-right font-semibold uppercase tracking-wide text-muted-foreground"
+                >
+                  {fx.label}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {MARGIN_PROFILES.map((margin) => (
+              <tr key={margin.id} className="border-t">
+                <th className="px-3 py-2 text-left">
+                  <div className="font-semibold">{margin.label}</div>
+                  <div className="text-[10px] font-normal text-muted-foreground">
+                    {(margin.total * 100).toFixed(0)}% combined
+                  </div>
+                </th>
+                {FX_SCENARIOS.map((fx) => {
+                  const idx = cells.findIndex(
+                    (c) => c.margin.id === margin.id && c.fx.id === fx.id,
+                  );
+                  const q = queries[idx];
+                  const floor =
+                    typeof q?.data?.floor_price === "number"
+                      ? q.data.floor_price
+                      : null;
+                  const { tone, deltaPct } = evaluate(floor);
+                  const isBaseline =
+                    margin.id === "standard" && fx.id === "base";
+                  return (
+                    <td
+                      key={fx.id}
+                      className={cn(
+                        "px-3 py-2 text-right tabular-nums",
+                        tone === "good" &&
+                          "bg-emerald-50 dark:bg-emerald-950/30",
+                        tone === "bad" &&
+                          "bg-rose-50 dark:bg-rose-950/30",
+                        isBaseline && "ring-1 ring-inset ring-primary/30",
+                      )}
+                    >
+                      {q?.isLoading ? (
+                        <span className="text-muted-foreground">…</span>
+                      ) : floor == null ? (
+                        <span className="text-muted-foreground">—</span>
+                      ) : (
+                        <div className="space-y-0.5">
+                          <div className="font-semibold">
+                            {formatCurrency(floor, sellCurrency)}
+                          </div>
+                          {deltaPct != null && (
+                            <div
+                              className={cn(
+                                "flex items-center justify-end gap-0.5 text-[10px] font-medium",
+                                tone === "good" &&
+                                  "text-emerald-700 dark:text-emerald-400",
+                                tone === "bad" &&
+                                  "text-rose-700 dark:text-rose-400",
+                                tone === "ok" &&
+                                  "text-amber-700 dark:text-amber-400",
+                                tone === "neutral" && "text-muted-foreground",
+                              )}
+                            >
+                              {referencePrice != null ? (
+                                <>
+                                  {deltaPct >= 0 ? (
+                                    <TrendingUp className="h-2.5 w-2.5" />
+                                  ) : (
+                                    <TrendingDown className="h-2.5 w-2.5" />
+                                  )}
+                                  {deltaPct >= 0 ? "+" : ""}
+                                  {deltaPct.toFixed(1)}%
+                                </>
+                              ) : (
+                                <>
+                                  {deltaPct === 0
+                                    ? "baseline"
+                                    : `${deltaPct >= 0 ? "+" : ""}${deltaPct.toFixed(1)}%`}
+                                </>
+                              )}
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      <div className="border-t p-3 text-[11px] leading-relaxed text-muted-foreground">
+        {referencePrice != null ? (
+          <>
+            <span className="font-semibold text-foreground">Green</span> = floor is at least 5% under
+            EU lowest (genuine cushion).{" "}
+            <span className="font-semibold text-foreground">Amber</span> = barely covers (0–5%
+            cushion).{" "}
+            <span className="font-semibold text-foreground">Red</span> = floor exceeds EU lowest;
+            this deal doesn&apos;t survive the scenario.
+          </>
+        ) : (
+          <>
+            Cells show the floor sell price at each margin/FX combination. Edit your buy cost or
+            margin overrides above to see how the matrix shifts.
+          </>
+        )}
+        {isLoading && <span className="ml-2 italic">Computing…</span>}
+      </div>
+    </div>
+  );
+}
+
+// ---------- Result breakdown ----------
+
+function ResultBreakdown({
+  data,
+  currency,
+}: {
+  data: Breakdown;
+  currency: string;
+}) {
+  const headline =
+    typeof data.floor_price === "number"
+      ? { label: "Floor sell", value: data.floor_price }
+      : typeof data.max_buy_local === "number"
+        ? { label: "Max buy", value: data.max_buy_local }
+        : null;
+
+  return (
+    <div className="mt-4 space-y-3">
+      {headline && (
+        <div className="rounded-md border bg-emerald-50 p-3 dark:bg-emerald-950/30">
+          <p className="text-xs uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
+            {headline.label}
+          </p>
+          <p className="text-2xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
+            {formatCurrency(headline.value, currency)}
+          </p>
+        </div>
+      )}
+      <details className="rounded-md border bg-muted/30">
+        <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          Breakdown
+        </summary>
+        <dl className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 pt-0 text-xs sm:grid-cols-3">
+          {Object.entries(data ?? {}).map(([k, v]) => (
+            <div key={k}>
+              <dt className="text-muted-foreground">{k}</dt>
+              <dd className="font-medium tabular-nums">
+                {typeof v === "number" &&
+                k !== "fx_rate" &&
+                k !== "floor_multiplier" &&
+                !k.startsWith("margin")
+                  ? formatCurrency(v, currency)
+                  : v == null
+                    ? "—"
+                    : String(v)}
+              </dd>
+            </div>
+          ))}
+        </dl>
+      </details>
+    </div>
+  );
+}
+
+function ProfitHint({ floor, euLow }: { floor: number | null; euLow: number }) {
+  if (floor == null) return null;
+  const diff = euLow - floor;
+  const pct = floor > 0 ? (diff / floor) * 100 : 0;
+  const ok = diff >= 0;
+  return (
+    <p className="mt-2 text-xs">
+      EU lowest listing is {formatCurrency(euLow, "EUR")}.{" "}
+      <span
+        className={
+          ok
+            ? "font-semibold text-emerald-600 dark:text-emerald-500"
+            : "font-semibold text-destructive"
+        }
+      >
+        {ok ? "+" : ""}
+        {formatCurrency(diff, "EUR")} ({pct.toFixed(1)}%) vs floor.
+      </span>
+    </p>
+  );
+}
+
+// ---------- MaxBuyForm ----------
+
 function MaxBuyForm({
   pricing,
   cardId,
 }: {
-  pricing: CardPricing | null;
+  pricing?: CardPricing | null;
   cardId?: string;
 }) {
   const [target, setTarget] = useState("");
@@ -400,6 +881,10 @@ function MaxBuyForm({
   const [fx, setFx] = useState("");
   const [marginCd, setMarginCd] = useState("");
   const [marginPp, setMarginPp] = useState("");
+  const [saleDate, setSaleDate] = useState("");
+  const [resolvedFx, setResolvedFx] = useState<number | null>(null);
+
+  const buyCcy: Enums<"currency_code"> = sellCcy === "USD" ? "EUR" : "USD";
 
   useEffect(() => {
     if (pricing?.eu_low != null && target === "") {
@@ -412,11 +897,17 @@ function MaxBuyForm({
   const mutation = useMutation({
     mutationFn: async () => {
       const supabase = createClient();
+      const fxToUse =
+        fx.trim() !== ""
+          ? Number(fx)
+          : resolvedFx != null
+            ? resolvedFx
+            : undefined;
       const { data, error } = await supabase.rpc("calc_max_buy_price", {
         p_target_sell_price: Number(target),
         p_sell_currency: sellCcy,
         p_allocated_travel: travel ? Number(travel) : 0,
-        p_fx_rate: fx ? Number(fx) : undefined,
+        p_fx_rate: fxToUse,
         p_margin_cd: marginCd ? Number(marginCd) : undefined,
         p_margin_pp: marginPp ? Number(marginPp) : undefined,
       });
@@ -483,6 +974,21 @@ function MaxBuyForm({
               </SelectContent>
             </Select>
           </div>
+          <div className="space-y-1.5 sm:col-span-2">
+            <Label className="text-xs">Sale date (optional)</Label>
+            <Input
+              type="date"
+              value={saleDate}
+              onChange={(e) => setSaleDate(e.target.value)}
+            />
+            <FxHint
+              date={saleDate}
+              base={buyCcy}
+              quote={sellCcy}
+              fxOverride={fx}
+              onResolved={setResolvedFx}
+            />
+          </div>
           <div className="space-y-1.5">
             <Label className="text-xs">Allocated travel</Label>
             <Input
@@ -542,93 +1048,24 @@ function MaxBuyForm({
         )}
 
         {mutation.data && (
-          <ResultBreakdown data={mutation.data} fallbackCurrency="USD" />
+          <ResultBreakdown
+            data={mutation.data}
+            currency={resolveBreakdownCurrency(mutation.data, buyCcy)}
+          />
         )}
 
         {pricing?.us_market != null && mutation.data && (
           <BuyHint
-            maxBuy={typeof mutation.data.max_buy_local === "number" ? mutation.data.max_buy_local : null}
+            maxBuy={
+              typeof mutation.data.max_buy_local === "number"
+                ? mutation.data.max_buy_local
+                : null
+            }
             usMarket={pricing.us_market}
           />
         )}
       </CardContent>
     </Card>
-  );
-}
-
-function ResultBreakdown({
-  data,
-  fallbackCurrency,
-}: {
-  data: Breakdown;
-  fallbackCurrency: string;
-}) {
-  const currency =
-    typeof data?.currency === "string"
-      ? String(data.currency).toUpperCase()
-      : fallbackCurrency;
-  const entries = Object.entries(data ?? {});
-  const headline =
-    typeof data.floor === "number"
-      ? { label: "Floor sell", value: data.floor }
-      : typeof data.max_buy_local === "number"
-        ? { label: "Max buy", value: data.max_buy_local }
-        : null;
-
-  return (
-    <div className="mt-4 space-y-3">
-      {headline && (
-        <div className="rounded-md border bg-emerald-50 p-3 dark:bg-emerald-950/30">
-          <p className="text-xs uppercase tracking-wide text-emerald-700 dark:text-emerald-400">
-            {headline.label}
-          </p>
-          <p className="text-2xl font-extrabold tabular-nums text-emerald-700 dark:text-emerald-400">
-            {formatCurrency(headline.value, currency)}
-          </p>
-        </div>
-      )}
-      <details className="rounded-md border bg-muted/30">
-        <summary className="cursor-pointer px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-          Breakdown
-        </summary>
-        <dl className="grid grid-cols-2 gap-x-3 gap-y-2 p-3 pt-0 text-xs sm:grid-cols-3">
-          {entries.map(([k, v]) => (
-            <div key={k}>
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="font-medium tabular-nums">
-                {typeof v === "number" && k !== "fx_rate" && !k.startsWith("margin")
-                  ? formatCurrency(v, currency)
-                  : v == null
-                    ? "—"
-                    : String(v)}
-              </dd>
-            </div>
-          ))}
-        </dl>
-      </details>
-    </div>
-  );
-}
-
-function ProfitHint({ floor, euLow }: { floor: number | null; euLow: number }) {
-  if (floor == null) return null;
-  const diff = euLow - floor;
-  const pct = floor > 0 ? (diff / floor) * 100 : 0;
-  const ok = diff >= 0;
-  return (
-    <p className="mt-2 text-xs">
-      EU lowest listing is {formatCurrency(euLow, "EUR")}.{" "}
-      <span
-        className={
-          ok
-            ? "font-semibold text-emerald-600 dark:text-emerald-500"
-            : "font-semibold text-destructive"
-        }
-      >
-        {ok ? "+" : ""}
-        {formatCurrency(diff, "EUR")} ({pct.toFixed(1)}%) vs floor.
-      </span>
-    </p>
   );
 }
 
@@ -654,7 +1091,7 @@ function BuyHint({ maxBuy, usMarket }: { maxBuy: number | null; usMarket: number
   );
 }
 
-// ---------- Manual Mode (preserves the old calc-from-scratch flow) ----------
+// ---------- Manual Mode ----------
 
 function ManualMode() {
   return (
@@ -664,10 +1101,10 @@ function ManualMode() {
         <TabsTrigger value="max">Max buy</TabsTrigger>
       </TabsList>
       <TabsContent value="floor">
-        <FloorPriceForm pricing={null} />
+        <FloorPriceForm />
       </TabsContent>
       <TabsContent value="max">
-        <MaxBuyForm pricing={null} />
+        <MaxBuyForm />
       </TabsContent>
     </Tabs>
   );
