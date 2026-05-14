@@ -101,9 +101,14 @@ export default function NewInventoryItemPage() {
       if (!picked) throw new Error("Pick a card first.");
       if (!buyCost) throw new Error("Buy cost is required.");
       const supabase = createClient();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) throw new Error("Not signed in.");
       const { data, error } = await supabase
         .from("inventory_items")
         .insert({
+          user_id: user.id,
           card_id: picked.id,
           buy_cost_local: Number(buyCost),
           buy_currency: buyCcy,

@@ -86,12 +86,12 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
     card_number: string | null;
     rarity: string | null;
     language: string;
-    is_foil: boolean;
     is_sealed: boolean;
     image_url: string | null;
     game: string;
     attributes: Record<string, unknown> | null;
   } | null;
+  const isFoil = (item as unknown as { is_foil: boolean | null }).is_foil ?? false;
   const trip = (item.trips as unknown) as {
     id: string;
     label: string;
@@ -109,7 +109,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">
             {card?.canonical_name ?? "Unknown card"}
-            {card?.is_foil && <span className="ml-1 text-amber-600">★</span>}
+            {isFoil && <span className="ml-1 text-amber-600">★</span>}
           </h1>
           <p className="text-sm text-muted-foreground">
             {card?.set_name ?? titleCase(card?.game)}
@@ -204,7 +204,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
               <Field label="Game" value={titleCase(card?.game)} />
               <Field label="Rarity" value={card?.rarity ?? "—"} />
               <Field label="Language" value={card?.language?.toUpperCase() ?? "—"} />
-              <Field label="Foil" value={card?.is_foil ? "Yes" : "No"} />
+              <Field label="Foil" value={isFoil ? "Yes" : "No"} />
               <Field label="Sealed" value={card?.is_sealed ? "Yes" : "No"} />
             </dl>
           </CardContent>

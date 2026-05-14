@@ -47,13 +47,13 @@ type Row = {
   margin_cd_override: number | null;
   margin_pp_override: number | null;
   notes: string | null;
+  is_foil: boolean | null;
   updated_at: string;
   cards: {
     canonical_name: string;
     set_name: string | null;
     set_code: string | null;
     game: Enums<"game_kind">;
-    is_foil: boolean;
   } | null;
   trips: { label: string | null } | null;
 };
@@ -125,7 +125,7 @@ export default function InventoryPage() {
       let query = supabase
         .from("inventory_items")
         .select(
-          "id, status, buy_cost_local, buy_currency, buy_location, source, partner_owner, bought_on, trip_id, listed_price, sell_currency, sold_price, sold_at, sold_to, allocated_travel, fx_rate_locked, margin_cd_override, margin_pp_override, notes, updated_at, cards(canonical_name, set_name, set_code, game, is_foil), trips!inventory_items_trip_id_fkey(label)",
+          "id, status, buy_cost_local, buy_currency, buy_location, source, partner_owner, bought_on, trip_id, listed_price, sell_currency, sold_price, sold_at, sold_to, allocated_travel, fx_rate_locked, margin_cd_override, margin_pp_override, notes, is_foil, updated_at, cards(canonical_name, set_name, set_code, game), trips!inventory_items_trip_id_fkey(label)",
         )
         .order("updated_at", { ascending: false })
         .limit(1000);
@@ -279,7 +279,7 @@ export default function InventoryPage() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {row.cards?.canonical_name ?? "Unknown"}
-                    {row.cards?.is_foil && (
+                    {row.is_foil && (
                       <span className="ml-1 text-amber-600">★</span>
                     )}
                   </p>
@@ -382,7 +382,7 @@ function buildColumns(
       render: (r) => (
         <span className="font-medium">
           {r.cards?.canonical_name ?? "Unknown"}
-          {r.cards?.is_foil && <span className="ml-1 text-amber-600">★</span>}
+          {r.is_foil && <span className="ml-1 text-amber-600">★</span>}
         </span>
       ),
     },
