@@ -9,6 +9,9 @@ const STATUS_CLASSES: Record<Enums<"inventory_status">, string> = {
   listed: "bg-violet-200 text-violet-900",
   sold: "bg-emerald-200 text-emerald-900",
   cancelled: "bg-rose-200 text-rose-900",
+  owned: "bg-slate-200 text-slate-800",
+  returned: "bg-zinc-200 text-zinc-800",
+  lost: "bg-rose-200 text-rose-900",
 };
 
 const STATUS_LABEL: Record<Enums<"inventory_status">, string> = {
@@ -19,6 +22,9 @@ const STATUS_LABEL: Record<Enums<"inventory_status">, string> = {
   listed: "Listed",
   sold: "Sold",
   cancelled: "Cancelled",
+  owned: "Owned",
+  returned: "Returned",
+  lost: "Lost",
 };
 
 export function StatusBadge({ status, className }: { status: Enums<"inventory_status">; className?: string }) {

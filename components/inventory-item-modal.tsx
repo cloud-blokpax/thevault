@@ -49,6 +49,9 @@ const STATUS_PILL_CLASSES: Record<Enums<"inventory_status">, string> = {
   listed: "bg-violet-200 text-violet-900",
   sold: "bg-emerald-200 text-emerald-900",
   cancelled: "bg-rose-200 text-rose-900",
+  owned: "bg-slate-200 text-slate-900",
+  returned: "bg-zinc-200 text-zinc-900",
+  lost: "bg-rose-200 text-rose-900",
 };
 
 type OpenTrip = {
