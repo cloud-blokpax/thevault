@@ -7,11 +7,14 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ChevronDown,
   ExternalLink,
   Flag,
   Info,
   Plus,
+  RotateCcw,
   ShoppingCart,
+  SlidersHorizontal,
   Target,
   X,
 } from "lucide-react";
@@ -305,6 +308,42 @@ function DealsPageInner() {
     setConfidence((cur) => (cur.includes(c) ? cur.filter((x) => x !== c) : [...cur, c]));
   }
 
+  function resetFilters() {
+    setGame("all");
+    setType(initial.type);
+    setMinMargin(initial.minMargin);
+    setMinProfit(0);
+    setMinBuy(initial.minBuy);
+    setMaxBuy(initial.maxBuy);
+    setConfidence(initial.confidence);
+    setShowWarnings(initial.showWarnings);
+    setIncludeTrendOnly(initial.includeTrendOnly);
+    setSort(initial.sort);
+  }
+
+  const sameConfidence = (a: Confidence[], b: Confidence[]) =>
+    a.length === b.length && [...a].sort().join(",") === [...b].sort().join(",");
+
+  const activeFilterCount =
+    (game !== "all" ? 1 : 0) +
+    (type !== initial.type ? 1 : 0) +
+    (minMargin !== initial.minMargin ? 1 : 0) +
+    (minProfit !== 0 ? 1 : 0) +
+    (minBuy !== initial.minBuy ? 1 : 0) +
+    (maxBuy !== initial.maxBuy ? 1 : 0) +
+    (sameConfidence(confidence, initial.confidence) ? 0 : 1) +
+    (showWarnings !== initial.showWarnings ? 1 : 0) +
+    (includeTrendOnly !== initial.includeTrendOnly ? 1 : 0) +
+    (sort !== initial.sort ? 1 : 0);
+
+  const [filtersOpen, setFiltersOpen] = useState<boolean | null>(null);
+  useEffect(() => {
+    if (filtersOpen !== null) return;
+    if (typeof window === "undefined") return;
+    setFiltersOpen(window.matchMedia("(min-width: 768px)").matches);
+  }, [filtersOpen]);
+  const isOpen = filtersOpen ?? false;
+
   return (
     <div className="space-y-4">
       <div>
@@ -318,7 +357,35 @@ function DealsPageInner() {
 
       <QuickEvaluator />
 
-      <div className="sticky top-12 z-20 -mx-4 border-b bg-background/95 px-4 py-3 backdrop-blur md:top-0 md:mx-0 md:rounded-lg md:border md:px-4">
+      <div className="sticky top-12 z-20 -mx-4 border-b bg-background/95 backdrop-blur md:top-0 md:mx-0 md:rounded-lg md:border">
+        <button
+          type="button"
+          onClick={() => setFiltersOpen((v) => !(v ?? false))}
+          aria-expanded={isOpen}
+          aria-controls="deals-filter-panel"
+          className="flex min-h-[44px] w-full items-center justify-between gap-3 px-4 py-2.5 text-left text-sm font-medium"
+        >
+          <span className="flex items-center gap-2">
+            <SlidersHorizontal className="h-4 w-4" />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="inline-flex items-center justify-center rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-semibold leading-none text-primary-foreground">
+                {activeFilterCount}
+              </span>
+            )}
+          </span>
+          <ChevronDown
+            className={cn(
+              "h-4 w-4 text-muted-foreground transition-transform duration-200",
+              isOpen && "rotate-180",
+            )}
+          />
+        </button>
+        <div
+          id="deals-filter-panel"
+          hidden={!isOpen}
+          className={cn("border-t px-4 pb-3 pt-3", !isOpen && "hidden")}
+        >
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
           <div className="space-y-1">
             <Label className="text-xs">Game</Label>
@@ -372,23 +439,25 @@ function DealsPageInner() {
               aria-label="Minimum profit euros"
             />
           </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Min buy ($)</Label>
-            <Input
-              inputMode="decimal"
-              value={minBuy}
-              onChange={(e) => setMinBuy(e.target.value)}
-              placeholder="0"
-            />
-          </div>
-          <div className="space-y-1">
-            <Label className="text-xs">Max buy ($)</Label>
-            <Input
-              inputMode="decimal"
-              value={maxBuy}
-              onChange={(e) => setMaxBuy(e.target.value)}
-              placeholder="no cap"
-            />
+          <div className="grid grid-cols-2 gap-2 md:contents">
+            <div className="space-y-1">
+              <Label className="text-xs">Min buy ($)</Label>
+              <Input
+                inputMode="decimal"
+                value={minBuy}
+                onChange={(e) => setMinBuy(e.target.value)}
+                placeholder="0"
+              />
+            </div>
+            <div className="space-y-1">
+              <Label className="text-xs">Max buy ($)</Label>
+              <Input
+                inputMode="decimal"
+                value={maxBuy}
+                onChange={(e) => setMaxBuy(e.target.value)}
+                placeholder="no cap"
+              />
+            </div>
           </div>
           <div className="space-y-1">
             <Label className="text-xs">Confidence</Label>
@@ -438,6 +507,27 @@ function DealsPageInner() {
               Show variant warnings
             </label>
           </div>
+        </div>
+        <div className="mt-3 flex items-center justify-between gap-2 border-t pt-3">
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={resetFilters}
+            disabled={activeFilterCount === 0}
+          >
+            <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
+            Reset
+          </Button>
+          <Button
+            type="button"
+            size="sm"
+            className="md:hidden"
+            onClick={() => setFiltersOpen(false)}
+          >
+            Done
+          </Button>
+        </div>
         </div>
       </div>
 

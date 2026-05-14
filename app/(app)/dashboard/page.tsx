@@ -26,7 +26,7 @@ export default async function DashboardPage() {
       .select("status, buy_cost_local, buy_currency"),
     supabase
       .from("inventory_items")
-      .select("id, status, buy_cost_local, buy_currency, listed_price, sell_currency, updated_at, cards(name, set_name, game)")
+      .select("id, status, buy_cost_local, buy_currency, listed_price, sell_currency, updated_at, cards(canonical_name, set_name, game)")
       .order("updated_at", { ascending: false })
       .limit(8),
     supabase
@@ -80,7 +80,7 @@ export default async function DashboardPage() {
             ) : (
               <ul className="divide-y">
                 {recentItems.map((item) => {
-                  const card = (item.cards as unknown) as { name: string; set_name: string | null; game: string } | null;
+                  const card = (item.cards as unknown) as { canonical_name: string; set_name: string | null; game: string } | null;
                   return (
                     <li key={item.id}>
                       <Link
@@ -88,7 +88,7 @@ export default async function DashboardPage() {
                         className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-accent/50 sm:px-6"
                       >
                         <div className="min-w-0">
-                          <p className="truncate text-sm font-medium">{card?.name ?? "Unknown card"}</p>
+                          <p className="truncate text-sm font-medium">{card?.canonical_name ?? "Unknown card"}</p>
                           <p className="truncate text-xs text-muted-foreground">
                             {card?.set_name ?? titleCase(card?.game)}
                           </p>

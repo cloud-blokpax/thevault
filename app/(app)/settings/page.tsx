@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
+import { UserManagement } from "./user-management";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -62,7 +63,10 @@ export default async function SettingsPage() {
           </CardContent>
         </Card>
       ) : (
-        <SettingsForm initialSettings={settings ?? []} />
+        <>
+          <UserManagement currentUserId={user.id} />
+          <SettingsForm initialSettings={settings ?? []} />
+        </>
       )}
 
       <CardMetadataReference />

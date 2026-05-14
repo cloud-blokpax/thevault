@@ -63,22 +63,25 @@ export default function NewInventoryItemPage() {
       const { data, error } = await supabase
         .from("cards")
         .select(
-          "id, game, name, set_name, set_code, card_number, rarity, language, is_foil, is_sealed, image_url",
+          "id, game, canonical_name, set_name, set_code, card_number, rarity, language, attributes, is_sealed, image_url",
         )
         .eq("id", prefillCardId!)
         .maybeSingle();
       if (error) throw error;
       if (data) {
+        const attrs = (data.attributes ?? {}) as Record<string, unknown>;
+        const foil =
+          typeof attrs.is_foil === "boolean" ? attrs.is_foil : null;
         setPicked({
           id: data.id,
           game: data.game,
-          name: data.name,
+          name: data.canonical_name,
           set_name: data.set_name,
           set_code: data.set_code,
           card_number: data.card_number,
           rarity: data.rarity,
           language: data.language,
-          is_foil: data.is_foil,
+          is_foil: foil,
           is_sealed: data.is_sealed,
           image_url: data.image_url,
           release_year: null,

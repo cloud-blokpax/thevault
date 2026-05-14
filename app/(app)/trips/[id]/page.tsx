@@ -46,7 +46,7 @@ type TripItem = {
   allocated_travel: number;
   listed_price: number | null;
   sell_currency: Enums<"currency_code"> | null;
-  cards: { name: string; set_name: string | null; game: string } | null;
+  cards: { canonical_name: string; set_name: string | null; game: string } | null;
 };
 
 type TripTotal = {
@@ -131,7 +131,7 @@ export default function TripDetailPage() {
       const { data, error } = await supabase
         .from("inventory_items")
         .select(
-          "id, status, buy_cost_local, buy_currency, allocated_travel, listed_price, sell_currency, cards(name, set_name, game)",
+          "id, status, buy_cost_local, buy_currency, allocated_travel, listed_price, sell_currency, cards(canonical_name, set_name, game)",
         )
         .eq("trip_id", tripId)
         .order("created_at", { ascending: false });
@@ -492,7 +492,7 @@ export default function TripDetailPage() {
                 >
                   <Link href={`/inventory/${item.id}`} className="min-w-0">
                     <p className="truncate text-sm font-medium">
-                      {item.cards?.name ?? "Unknown"}
+                      {item.cards?.canonical_name ?? "Unknown"}
                     </p>
                     <p className="truncate text-xs text-muted-foreground">
                       {item.cards?.set_name ?? titleCase(item.cards?.game)}
@@ -514,7 +514,7 @@ export default function TripDetailPage() {
                       if (!editable) return;
                       if (
                         window.confirm(
-                          `Remove "${item.cards?.name ?? "this item"}" from the trip?`,
+                          `Remove "${item.cards?.canonical_name ?? "this item"}" from the trip?`,
                         )
                       ) {
                         removeItemMutation.mutate(item.id);

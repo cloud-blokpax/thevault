@@ -36,13 +36,14 @@ export function MobileNav() {
             <li key={href}>
               <Link
                 href={href}
+                aria-label={label}
                 className={cn(
-                  "flex flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium",
+                  "flex min-h-[48px] flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium",
                   active ? "text-primary" : "text-muted-foreground",
                 )}
               >
                 <Icon className="h-5 w-5" />
-                {label}
+                <span className="hidden xs:inline">{label}</span>
               </Link>
             </li>
           );
@@ -101,14 +102,16 @@ export function DesktopNav({ email }: { email?: string | null }) {
 
 export function MobileHeader({ email }: { email?: string | null }) {
   return (
-    <header className="sticky top-0 z-30 flex items-center justify-between border-b bg-background/80 px-4 py-3 pt-safe backdrop-blur md:hidden">
-      <span className="text-base font-bold tracking-tight">The Vault</span>
+    <header className="sticky top-0 z-30 flex h-12 items-center justify-between bg-background/80 px-3 pt-safe backdrop-blur md:hidden">
+      <span className="text-sm font-semibold tracking-tight text-muted-foreground">
+        The Vault
+      </span>
       <form action="/api/auth/signout" method="post">
         <button
           type="submit"
           aria-label="Sign out"
           title={email ?? "Sign out"}
-          className="rounded-md p-2 text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+          className="-mr-1 inline-flex h-11 w-11 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-accent-foreground"
         >
           <LogOut className="h-4 w-4" />
         </button>

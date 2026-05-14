@@ -80,7 +80,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
   if (!item) notFound();
 
   const card = (item.cards as unknown) as {
-    name: string;
+    canonical_name: string;
     set_name: string | null;
     set_code: string | null;
     card_number: string | null;
@@ -108,7 +108,7 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
             ← Inventory
           </Link>
           <h1 className="text-2xl font-bold tracking-tight">
-            {card?.name ?? "Unknown card"}
+            {card?.canonical_name ?? "Unknown card"}
             {card?.is_foil && <span className="ml-1 text-amber-600">★</span>}
           </h1>
           <p className="text-sm text-muted-foreground">
@@ -130,10 +130,10 @@ export default async function InventoryDetailPage({ params }: { params: { id: st
           <div className="flex shrink-0 justify-center sm:justify-start">
             <CardImage
               src={card?.image_url}
-              alt={card?.name ?? "Card image"}
+              alt={card?.canonical_name ?? "Card image"}
               width={240}
               height={336}
-              fallbackText={card?.name ?? "No image"}
+              fallbackText={card?.canonical_name ?? "No image"}
             />
           </div>
           {pills.length > 0 && (
