@@ -1,10 +1,11 @@
 import Link from "next/link";
-import { Calendar, ExternalLink, PackagePlus, Sparkles, Plus } from "lucide-react";
+import { Calendar, PackagePlus, Sparkles, Plus } from "lucide-react";
 import { createClient } from "@/lib/supabase/server";
 import { CardImage } from "@/components/ui/card-image";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { cn, formatCurrency, formatDate, titleCase } from "@/lib/utils";
+import { RetailerLinkPill } from "./retailer-link-pill";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -17,6 +18,7 @@ type RetailerLink = {
   price_usd: number | null;
   price_eur: number | null;
   in_stock: boolean | null;
+  stock_checked_at: string | null;
   notes: string | null;
   sort_order: number;
 };
@@ -73,7 +75,7 @@ export default async function DropsPage() {
     supabase
       .from("product_drops" as never)
       .select(
-        "id, game, name, set_code, set_name, product_type, image_url, release_date, msrp_usd, msrp_eur, notes, status, card_id, drop_retailer_links(id, retailer, region, url, price_usd, price_eur, in_stock, notes, sort_order)",
+        "id, game, name, set_code, set_name, product_type, image_url, release_date, msrp_usd, msrp_eur, notes, status, card_id, drop_retailer_links(id, retailer, region, url, price_usd, price_eur, in_stock, stock_checked_at, notes, sort_order)",
       )
       .order("release_date", { ascending: true, nullsFirst: false })
       .limit(200),
@@ -166,6 +168,7 @@ export default async function DropsPage() {
           icon={<Calendar className="h-4 w-4" />}
           drops={upcoming}
           tone="upcoming"
+          isAdmin={isAdmin}
         />
       )}
       {live.length > 0 && (
@@ -174,6 +177,7 @@ export default async function DropsPage() {
           icon={<Sparkles className="h-4 w-4" />}
           drops={live}
           tone="live"
+          isAdmin={isAdmin}
         />
       )}
       {past.length > 0 && (
@@ -182,6 +186,7 @@ export default async function DropsPage() {
           icon={<PackagePlus className="h-4 w-4" />}
           drops={past}
           tone="past"
+          isAdmin={isAdmin}
         />
       )}
     </div>
@@ -199,11 +204,13 @@ function Section({
   icon,
   drops,
   tone,
+  isAdmin,
 }: {
   title: string;
   icon: React.ReactNode;
   drops: Drop[];
   tone: "upcoming" | "live" | "past";
+  isAdmin: boolean;
 }) {
   return (
     <section className="space-y-3">
@@ -214,14 +221,22 @@ function Section({
       </h2>
       <div className="grid gap-3 lg:grid-cols-2">
         {drops.map((d) => (
-          <DropCard key={d.id} drop={d} tone={tone} />
+          <DropCard key={d.id} drop={d} tone={tone} isAdmin={isAdmin} />
         ))}
       </div>
     </section>
   );
 }
 
-function DropCard({ drop, tone }: { drop: Drop; tone: "upcoming" | "live" | "past" }) {
+function DropCard({
+  drop,
+  tone,
+  isAdmin,
+}: {
+  drop: Drop;
+  tone: "upcoming" | "live" | "past";
+  isAdmin: boolean;
+}) {
   const days = daysUntil(drop.release_date);
   const releaseLabel =
     drop.release_date && days != null
@@ -296,7 +311,12 @@ function DropCard({ drop, tone }: { drop: Drop; tone: "upcoming" | "live" | "pas
           {drop.drop_retailer_links.length > 0 && (
             <div className="flex flex-wrap gap-1.5 pt-1">
               {drop.drop_retailer_links.map((link) => (
-                <RetailerButton key={link.id} link={link} />
+                <RetailerLinkPill
+                  key={link.id}
+                  link={link}
+                  retailerLabel={retailerLabel(link.retailer)}
+                  isAdmin={isAdmin}
+                />
               ))}
             </div>
           )}
@@ -315,36 +335,3 @@ function DropCard({ drop, tone }: { drop: Drop; tone: "upcoming" | "live" | "pas
   );
 }
 
-function RetailerButton({ link }: { link: RetailerLink }) {
-  const price =
-    link.price_usd != null
-      ? formatCurrency(link.price_usd, "USD")
-      : link.price_eur != null
-        ? formatCurrency(link.price_eur, "EUR")
-        : null;
-  const outOfStock = link.in_stock === false;
-
-  return (
-    <a
-      href={link.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border bg-background px-2.5 py-1 text-xs font-medium transition-colors",
-        outOfStock
-          ? "text-muted-foreground line-through"
-          : "hover:bg-accent hover:text-accent-foreground",
-      )}
-      title={link.notes ?? undefined}
-    >
-      <span>{retailerLabel(link.retailer)}</span>
-      {link.region !== "US" && (
-        <span className="rounded bg-muted px-1 text-[10px] font-mono uppercase text-muted-foreground">
-          {link.region}
-        </span>
-      )}
-      {price && <span className="tabular-nums text-muted-foreground">{price}</span>}
-      <ExternalLink className="h-3 w-3" />
-    </a>
-  );
-}

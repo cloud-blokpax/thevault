@@ -49,7 +49,7 @@ type Row = {
   notes: string | null;
   updated_at: string;
   cards: {
-    name: string;
+    canonical_name: string;
     set_name: string | null;
     set_code: string | null;
     game: Enums<"game_kind">;
@@ -125,7 +125,7 @@ export default function InventoryPage() {
       let query = supabase
         .from("inventory_items")
         .select(
-          "id, status, buy_cost_local, buy_currency, buy_location, source, partner_owner, bought_on, trip_id, listed_price, sell_currency, sold_price, sold_at, sold_to, allocated_travel, fx_rate_locked, margin_cd_override, margin_pp_override, notes, updated_at, cards(name, set_name, set_code, game, is_foil), trips!inventory_items_trip_id_fkey(label)",
+          "id, status, buy_cost_local, buy_currency, buy_location, source, partner_owner, bought_on, trip_id, listed_price, sell_currency, sold_price, sold_at, sold_to, allocated_travel, fx_rate_locked, margin_cd_override, margin_pp_override, notes, updated_at, cards(canonical_name, set_name, set_code, game, is_foil), trips!inventory_items_trip_id_fkey(label)",
         )
         .order("updated_at", { ascending: false })
         .limit(1000);
@@ -182,7 +182,7 @@ export default function InventoryPage() {
     return data.filter((r) => {
       const c = r.cards;
       return (
-        c?.name.toLowerCase().includes(q) ||
+        c?.canonical_name.toLowerCase().includes(q) ||
         c?.set_name?.toLowerCase().includes(q) ||
         c?.set_code?.toLowerCase().includes(q)
       );
@@ -278,7 +278,7 @@ export default function InventoryPage() {
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
-                    {row.cards?.name ?? "Unknown"}
+                    {row.cards?.canonical_name ?? "Unknown"}
                     {row.cards?.is_foil && (
                       <span className="ml-1 text-amber-600">★</span>
                     )}
@@ -377,11 +377,11 @@ function buildColumns(
       id: "card",
       label: "Card",
       type: "text",
-      accessor: (r) => r.cards?.name ?? "",
+      accessor: (r) => r.cards?.canonical_name ?? "",
       hideable: false,
       render: (r) => (
         <span className="font-medium">
-          {r.cards?.name ?? "Unknown"}
+          {r.cards?.canonical_name ?? "Unknown"}
           {r.cards?.is_foil && <span className="ml-1 text-amber-600">★</span>}
         </span>
       ),

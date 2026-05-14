@@ -48,62 +48,47 @@ export type Database = {
       cards: {
         Row: {
           attributes: Json
+          canonical_name: string
           card_number: string | null
-          cardmarket_id: string | null
           created_at: string
           game: Database["public"]["Enums"]["game_kind"]
           id: string
           image_url: string | null
-          is_foil: boolean
           is_sealed: boolean
           language: string
-          name: string
-          notes: string | null
           rarity: string | null
-          scrydex_id: string | null
           set_code: string | null
           set_name: string | null
-          tcgplayer_id: string | null
           updated_at: string
         }
         Insert: {
           attributes?: Json
+          canonical_name: string
           card_number?: string | null
-          cardmarket_id?: string | null
           created_at?: string
           game: Database["public"]["Enums"]["game_kind"]
           id?: string
           image_url?: string | null
-          is_foil?: boolean
           is_sealed?: boolean
           language?: string
-          name: string
-          notes?: string | null
           rarity?: string | null
-          scrydex_id?: string | null
           set_code?: string | null
           set_name?: string | null
-          tcgplayer_id?: string | null
           updated_at?: string
         }
         Update: {
           attributes?: Json
+          canonical_name?: string
           card_number?: string | null
-          cardmarket_id?: string | null
           created_at?: string
           game?: Database["public"]["Enums"]["game_kind"]
           id?: string
           image_url?: string | null
-          is_foil?: boolean
           is_sealed?: boolean
           language?: string
-          name?: string
-          notes?: string | null
           rarity?: string | null
-          scrydex_id?: string | null
           set_code?: string | null
           set_name?: string | null
-          tcgplayer_id?: string | null
           updated_at?: string
         }
         Relationships: []
@@ -326,13 +311,14 @@ export type Database = {
           retailer: string
           region: string
           url: string
+          price_local: number | null
+          price_currency: Database["public"]["Enums"]["currency_code"] | null
+          sort_order: number
+          in_stock: boolean | null
+          stock_checked_at: string | null
+          notes: string | null
           price_usd: number | null
           price_eur: number | null
-          in_stock: boolean | null
-          notes: string | null
-          sort_order: number
-          created_at: string
-          updated_at: string
         }
         Insert: {
           id?: string
@@ -340,13 +326,12 @@ export type Database = {
           retailer: string
           region?: string
           url: string
-          price_usd?: number | null
-          price_eur?: number | null
-          in_stock?: boolean | null
-          notes?: string | null
+          price_local?: number | null
+          price_currency?: Database["public"]["Enums"]["currency_code"] | null
           sort_order?: number
-          created_at?: string
-          updated_at?: string
+          in_stock?: boolean | null
+          stock_checked_at?: string | null
+          notes?: string | null
         }
         Update: {
           id?: string
@@ -354,13 +339,12 @@ export type Database = {
           retailer?: string
           region?: string
           url?: string
-          price_usd?: number | null
-          price_eur?: number | null
-          in_stock?: boolean | null
-          notes?: string | null
+          price_local?: number | null
+          price_currency?: Database["public"]["Enums"]["currency_code"] | null
           sort_order?: number
-          created_at?: string
-          updated_at?: string
+          in_stock?: boolean | null
+          stock_checked_at?: string | null
+          notes?: string | null
         }
         Relationships: [
           {
