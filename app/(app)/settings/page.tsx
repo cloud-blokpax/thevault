@@ -4,6 +4,8 @@ import { createClient } from "@/lib/supabase/server";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { SettingsForm } from "./settings-form";
 import { UserManagement } from "./user-management";
+import { PushNotifications } from "./push-notifications";
+import { WatchRules } from "./watch-rules";
 
 export const runtime = "edge";
 export const dynamic = "force-dynamic";
@@ -51,6 +53,9 @@ export default async function SettingsPage() {
           </form>
         </CardContent>
       </Card>
+
+      <PushNotifications userId={user.id} />
+      <WatchRules userId={user.id} />
 
       {!isAdmin ? (
         <Card>
