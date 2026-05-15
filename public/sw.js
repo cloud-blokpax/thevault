@@ -1,7 +1,7 @@
-// Minimal service worker for installability + offline shell.
-// Avoid caching authenticated API/HTML responses.
+// Service worker for The Vault: installability + offline shell +
+// Web Push for drop in-stock alerts.
 
-const CACHE = "vault-shell-v1";
+const CACHE = "vault-shell-v2";
 const SHELL = ["/manifest.webmanifest", "/icons/icon-192.png", "/icons/icon-512.png"];
 
 self.addEventListener("install", (event) => {
@@ -25,7 +25,6 @@ self.addEventListener("fetch", (event) => {
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
-  // Cache-first for static icons + manifest
   if (SHELL.some((p) => url.pathname === p) || url.pathname.startsWith("/icons/")) {
     event.respondWith(
       caches.match(req).then((cached) => cached || fetch(req)),
@@ -33,8 +32,43 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Network-first for everything else; do not cache HTML/API.
   event.respondWith(
     fetch(req).catch(() => caches.match(req).then((c) => c || Response.error())),
+  );
+});
+
+// ---- Web Push ----------------------------------------------------
+self.addEventListener("push", (event) => {
+  let data = {};
+  try {
+    data = event.data ? event.data.json() : {};
+  } catch {
+    data = { title: "The Vault", body: event.data ? event.data.text() : "" };
+  }
+  const title = data.title || "The Vault";
+  const options = {
+    body: data.body || "",
+    icon: data.icon || "/icons/icon-192.png",
+    badge: "/icons/icon-192.png",
+    tag: data.tag || "vault-drop",
+    renotify: true,
+    data: { url: data.url || "/drops" },
+  };
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification.data && event.notification.data.url) || "/drops";
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
+      for (const client of clients) {
+        if ("focus" in client) {
+          client.navigate?.(targetUrl);
+          return client.focus();
+        }
+      }
+      return self.clients.openWindow(targetUrl);
+    }),
   );
 });
