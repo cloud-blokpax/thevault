@@ -4,14 +4,16 @@ import { Suspense, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as Dialog from "@radix-ui/react-dialog";
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  CheckCircle2,
   ChevronDown,
   ExternalLink,
   Flag,
   Info,
   Plus,
+  RefreshCw,
   RotateCcw,
   ShoppingCart,
   SlidersHorizontal,
@@ -88,6 +90,31 @@ function formatRelative(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.round(hours / 24);
   return `${days}d ago`;
+}
+
+const FRESH_LISTINGS_WINDOW_MS = 24 * 60 * 60 * 1000;
+
+type EbayCheckGate = {
+  reason?: string;
+  hourly_used?: number;
+  hourly_limit?: number;
+  card_cooldown_remaining_s?: number;
+};
+
+function formatGateReason(reason: string, gate: EbayCheckGate | undefined): string {
+  switch (reason) {
+    case "hourly_user_limit":
+      return `You've used ${gate?.hourly_used ?? "?"}/${gate?.hourly_limit ?? "?"} manual checks this hour. Try again later.`;
+    case "card_cooldown": {
+      const secs = gate?.card_cooldown_remaining_s ?? 0;
+      const mins = Math.max(1, Math.ceil(secs / 60));
+      return `This card was just checked. Try again in ${mins} min.`;
+    }
+    case "daily_quota_exhausted":
+      return "Daily eBay quota exhausted. Resets at midnight UTC.";
+    default:
+      return `Couldn't check eBay: ${reason}`;
+  }
 }
 
 type CategoryDefaults = {
@@ -1000,6 +1027,65 @@ function DealDetailContent({
   deal: Deal;
   onShowProvenance: () => void;
 }) {
+  const qc = useQueryClient();
+  const [checkFeedback, setCheckFeedback] = useState<
+    { kind: "success" | "error"; text: string } | null
+  >(null);
+
+  const checkEbayMutation = useMutation({
+    mutationFn: async (cardId: string) => {
+      const supabase = createClient();
+      const { data, error } = await supabase.functions.invoke("ebay-check-card", {
+        body: { card_id: cardId },
+      });
+
+      type EbayCheckBody = {
+        ok?: boolean;
+        gate?: EbayCheckGate;
+        error?: string;
+        kept_count?: number;
+      };
+      // 429 rate-limit responses may surface either as `data` with ok:false
+      // (when the body was parsed) or via the error's context — handle both.
+      let body: EbayCheckBody | null = (data as EbayCheckBody | null) ?? null;
+      if (!body && error) {
+        const ctx = (error as { context?: { json?: () => Promise<unknown> } }).context;
+        if (ctx?.json) {
+          try {
+            body = (await ctx.json()) as EbayCheckBody;
+          } catch {
+            /* leave body null */
+          }
+        }
+      }
+
+      if (body && body.ok === false) {
+        const reason = body.gate?.reason ?? body.error ?? "unknown";
+        throw new Error(formatGateReason(reason, body.gate));
+      }
+      if (error) throw new Error(error.message);
+      if (!body?.ok) throw new Error("Unexpected response from eBay check.");
+      return body as { ok: true; kept_count: number };
+    },
+    onMutate: () => {
+      setCheckFeedback(null);
+    },
+    onSuccess: (data, cardId) => {
+      void qc.invalidateQueries({ queryKey: ["ebay_listings", cardId] });
+      void qc.invalidateQueries({ queryKey: ["potential_deals"] });
+      setCheckFeedback({
+        kind: "success",
+        text:
+          data.kept_count > 0
+            ? `Found ${data.kept_count} listing${data.kept_count === 1 ? "" : "s"}.`
+            : "Checked eBay — no matching active listings right now.",
+      });
+    },
+    onError: (e: Error) => {
+      setCheckFeedback({ kind: "error", text: e.message });
+    },
+  });
+
   const buyUsd = num(deal.us_buy_usd);
   const sellEur = num(deal.eu_sell_eur);
   const euLow = deal.eu_low_min != null ? num(deal.eu_low_min) : 0;
@@ -1164,7 +1250,30 @@ function DealDetailContent({
         )}
       </div>
 
-      <EbayListingsSection cardId={deal.card_id} />
+      <EbayListingsSection
+        cardId={deal.card_id}
+        lastFetchedAt={deal.ebay_last_fetched_at}
+        onCheck={() => checkEbayMutation.mutate(deal.card_id)}
+        isChecking={checkEbayMutation.isPending}
+      />
+
+      {checkFeedback && (
+        <p
+          className={cn(
+            "flex items-start gap-1.5 rounded-md border p-2 text-xs",
+            checkFeedback.kind === "success"
+              ? "border-emerald-200 bg-emerald-50/60 text-emerald-900 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-200"
+              : "border-amber-200 bg-amber-50/60 text-amber-900 dark:border-amber-900 dark:bg-amber-950/40 dark:text-amber-200",
+          )}
+        >
+          {checkFeedback.kind === "success" ? (
+            <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          ) : (
+            <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          )}
+          <span>{checkFeedback.text}</span>
+        </p>
+      )}
 
       <div className="flex flex-wrap gap-2">
         <Button asChild size="sm">
@@ -1185,6 +1294,20 @@ function DealDetailContent({
             <ExternalLink className="mr-1 h-3.5 w-3.5" />
             Cardmarket
           </a>
+        </Button>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => checkEbayMutation.mutate(deal.card_id)}
+          disabled={checkEbayMutation.isPending}
+        >
+          <RefreshCw
+            className={cn(
+              "mr-1 h-3.5 w-3.5",
+              checkEbayMutation.isPending && "animate-spin",
+            )}
+          />
+          {checkEbayMutation.isPending ? "Checking…" : "Check eBay"}
         </Button>
       </div>
 
@@ -1337,7 +1460,17 @@ function PriceLadder({
   );
 }
 
-function EbayListingsSection({ cardId }: { cardId: string }) {
+function EbayListingsSection({
+  cardId,
+  lastFetchedAt,
+  onCheck,
+  isChecking,
+}: {
+  cardId: string;
+  lastFetchedAt: string | null;
+  onCheck: () => void;
+  isChecking: boolean;
+}) {
   const listingsQuery = useQuery<EbayListing[]>({
     queryKey: ["ebay_listings", cardId],
     queryFn: async () => {
@@ -1370,14 +1503,57 @@ function EbayListingsSection({ cardId }: { cardId: string }) {
   }
 
   const listings = listingsQuery.data ?? [];
-  if (listings.length === 0) return null;
+  const fetchedAtMs = lastFetchedAt ? new Date(lastFetchedAt).getTime() : null;
+  const isStale =
+    fetchedAtMs != null &&
+    !Number.isNaN(fetchedAtMs) &&
+    Date.now() - fetchedAtMs > FRESH_LISTINGS_WINDOW_MS;
+
+  if (listings.length === 0) {
+    return (
+      <div className="rounded-md border bg-muted/30 p-3">
+        <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ShoppingCart className="h-3.5 w-3.5" />
+          Active eBay listings
+        </p>
+        <div className="flex flex-wrap items-center gap-2">
+          <p className="text-xs text-muted-foreground">
+            {lastFetchedAt
+              ? `No active listings found (checked ${formatRelative(lastFetchedAt)}).`
+              : "No eBay listings yet."}
+          </p>
+          <Button size="sm" variant="outline" onClick={onCheck} disabled={isChecking}>
+            <RefreshCw
+              className={cn("mr-1 h-3.5 w-3.5", isChecking && "animate-spin")}
+            />
+            {isChecking ? "Checking…" : "Check eBay"}
+          </Button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="rounded-md border bg-muted/30 p-3">
-      <p className="mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-        <ShoppingCart className="h-3.5 w-3.5" />
-        Active eBay listings
-      </p>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <ShoppingCart className="h-3.5 w-3.5" />
+          Active eBay listings
+        </p>
+        {isStale && lastFetchedAt && (
+          <button
+            type="button"
+            onClick={onCheck}
+            disabled={isChecking}
+            className="inline-flex items-center gap-1 text-[10px] font-medium text-primary hover:underline disabled:opacity-60"
+          >
+            <RefreshCw
+              className={cn("h-3 w-3", isChecking && "animate-spin")}
+            />
+            Last checked {formatRelative(lastFetchedAt)} — Refresh
+          </button>
+        )}
+      </div>
       <ul className="space-y-2">
         {listings.map((listing, i) => (
           <li key={`${listing.item_url}-${i}`} className="text-xs">
