@@ -116,7 +116,7 @@ export default async function DropsPage({
   const [{ data: dropsRaw, error }, { data: profile }, { data: suggestionsRaw }] =
     await Promise.all([
       supabase
-        .from("product_drops" as never)
+        .from("product_drops")
         .select(
           "id, game, name, set_code, set_name, product_type, image_url, release_date, msrp_usd, msrp_eur, notes, status, card_id, drop_retailer_links(id, retailer, region, url, price_usd, price_eur, in_stock, stock_checked_at, notes, sort_order, monitor_mode, last_state, last_state_at, last_state_changed_at, next_check_at)",
         )
@@ -129,7 +129,7 @@ export default async function DropsPage({
         .maybeSingle(),
       userId
         ? supabase
-            .from("drop_suggestions" as never)
+            .from("drop_suggestions")
             .select(
               "id, drop_id, reason, created_at, product_drops:drop_id(id, game, name, set_code, set_name, product_type, image_url, release_date, msrp_usd, msrp_eur, notes, status, card_id, drop_retailer_links(id, retailer, region, url, price_usd, price_eur, in_stock, stock_checked_at, notes, sort_order, monitor_mode, last_state, last_state_at, last_state_changed_at, next_check_at))",
             )
@@ -470,7 +470,6 @@ function DropCard({
             )}
             {isAdmin && drop.drop_retailer_links.length > 0 && (
               <WatchDropButton
-                dropId={drop.id}
                 linkIds={drop.drop_retailer_links.filter((l) => l.url).map((l) => l.id)}
                 suggestionId={suggestionId}
               />

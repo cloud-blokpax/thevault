@@ -8,11 +8,12 @@ import { createClient } from "@/lib/supabase/client";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import type { Enums } from "@/types/database";
 
 export const runtime = "edge";
 
 type ParsedRow = {
-  game: string;
+  game: Enums<"game_kind">;
   name: string;
   set_code?: string;
   set_name?: string;
@@ -91,7 +92,7 @@ function normalizeRow(raw: Record<string, string>): ParsedRow {
     .filter(Boolean);
 
   return {
-    game,
+    game: game as Enums<"game_kind">,
     name,
     set_code: raw["set_code"] || undefined,
     set_name: raw["set_name"] || undefined,
@@ -147,17 +148,17 @@ pokemon,Example ETB,SV09,Example Set,etb,2026-08-15,49.99,"pokemoncenter,target,
         notes: r.notes ?? null,
       }));
       const { data, error } = await supabase
-        .from("drop_calendar_entries" as never)
-        .upsert(batch as never, {
+        .from("drop_calendar_entries")
+        .upsert(batch, {
           onConflict: "game,name,release_date",
           ignoreDuplicates: true,
-        } as never)
+        })
         .select("id");
       if (error) {
         errs.push(error.message);
         continue;
       }
-      const newCount = (data as unknown as { id: string }[] | null)?.length ?? 0;
+      const newCount = data?.length ?? 0;
       inserted += newCount;
       skipped += batch.length - newCount;
     }

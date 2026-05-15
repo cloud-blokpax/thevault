@@ -190,11 +190,133 @@ export type Database = {
           },
         ]
       }
+      drop_calendar_entries: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          expected_retailers: string[]
+          game: Database["public"]["Enums"]["game_kind"]
+          id: string
+          imported_drop_id: string | null
+          msrp_eur: number | null
+          msrp_usd: number | null
+          name: string
+          notes: string | null
+          product_type: string | null
+          release_date: string | null
+          set_code: string | null
+          set_name: string | null
+          source_url: string | null
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          expected_retailers?: string[]
+          game: Database["public"]["Enums"]["game_kind"]
+          id?: string
+          imported_drop_id?: string | null
+          msrp_eur?: number | null
+          msrp_usd?: number | null
+          name: string
+          notes?: string | null
+          product_type?: string | null
+          release_date?: string | null
+          set_code?: string | null
+          set_name?: string | null
+          source_url?: string | null
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          expected_retailers?: string[]
+          game?: Database["public"]["Enums"]["game_kind"]
+          id?: string
+          imported_drop_id?: string | null
+          msrp_eur?: number | null
+          msrp_usd?: number | null
+          name?: string
+          notes?: string | null
+          product_type?: string | null
+          release_date?: string | null
+          set_code?: string | null
+          set_name?: string | null
+          source_url?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drop_calendar_entries_imported_drop_id_fkey"
+            columns: ["imported_drop_id"]
+            isOneToOne: false
+            referencedRelation: "product_drops"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drop_check_history: {
+        Row: {
+          checked_at: string
+          currency_observed: string | null
+          drop_id: string
+          duration_ms: number | null
+          error: string | null
+          http_status: number | null
+          id: number
+          link_id: string
+          price_observed: number | null
+          signals: Json | null
+          state: Database["public"]["Enums"]["monitor_state"]
+        }
+        Insert: {
+          checked_at?: string
+          currency_observed?: string | null
+          drop_id: string
+          duration_ms?: number | null
+          error?: string | null
+          http_status?: number | null
+          id?: number
+          link_id: string
+          price_observed?: number | null
+          signals?: Json | null
+          state: Database["public"]["Enums"]["monitor_state"]
+        }
+        Update: {
+          checked_at?: string
+          currency_observed?: string | null
+          drop_id?: string
+          duration_ms?: number | null
+          error?: string | null
+          http_status?: number | null
+          id?: number
+          link_id?: string
+          price_observed?: number | null
+          signals?: Json | null
+          state?: Database["public"]["Enums"]["monitor_state"]
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drop_check_history_link_id_fkey"
+            columns: ["link_id"]
+            isOneToOne: false
+            referencedRelation: "drop_retailer_links"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       drop_retailer_links: {
         Row: {
+          alert_user_ids: string[]
+          consecutive_errors: number
+          detector_hint: string | null
           drop_id: string
+          hot_expires_at: string | null
           id: string
           in_stock: boolean | null
+          last_error: string | null
+          last_state: Database["public"]["Enums"]["monitor_state"]
+          last_state_at: string | null
+          last_state_changed_at: string | null
+          monitor_mode: Database["public"]["Enums"]["monitor_mode"]
+          next_check_at: string | null
           notes: string | null
           price_currency: Database["public"]["Enums"]["currency_code"] | null
           price_eur: number | null
@@ -207,9 +329,19 @@ export type Database = {
           url: string
         }
         Insert: {
+          alert_user_ids?: string[]
+          consecutive_errors?: number
+          detector_hint?: string | null
           drop_id: string
+          hot_expires_at?: string | null
           id?: string
           in_stock?: boolean | null
+          last_error?: string | null
+          last_state?: Database["public"]["Enums"]["monitor_state"]
+          last_state_at?: string | null
+          last_state_changed_at?: string | null
+          monitor_mode?: Database["public"]["Enums"]["monitor_mode"]
+          next_check_at?: string | null
           notes?: string | null
           price_currency?: Database["public"]["Enums"]["currency_code"] | null
           price_eur?: number | null
@@ -222,9 +354,19 @@ export type Database = {
           url: string
         }
         Update: {
+          alert_user_ids?: string[]
+          consecutive_errors?: number
+          detector_hint?: string | null
           drop_id?: string
+          hot_expires_at?: string | null
           id?: string
           in_stock?: boolean | null
+          last_error?: string | null
+          last_state?: Database["public"]["Enums"]["monitor_state"]
+          last_state_at?: string | null
+          last_state_changed_at?: string | null
+          monitor_mode?: Database["public"]["Enums"]["monitor_mode"]
+          next_check_at?: string | null
           notes?: string | null
           price_currency?: Database["public"]["Enums"]["currency_code"] | null
           price_eur?: number | null
@@ -245,6 +387,108 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      drop_suggestions: {
+        Row: {
+          created_at: string
+          dismissed: boolean
+          drop_id: string
+          id: string
+          reason: string | null
+          rule_id: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          dismissed?: boolean
+          drop_id: string
+          id?: string
+          reason?: string | null
+          rule_id?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          dismissed?: boolean
+          drop_id?: string
+          id?: string
+          reason?: string | null
+          rule_id?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "drop_suggestions_drop_id_fkey"
+            columns: ["drop_id"]
+            isOneToOne: false
+            referencedRelation: "product_drops"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "drop_suggestions_rule_id_fkey"
+            columns: ["rule_id"]
+            isOneToOne: false
+            referencedRelation: "drop_watch_rules"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      drop_watch_rules: {
+        Row: {
+          action: Database["public"]["Enums"]["rule_action"]
+          created_at: string
+          enabled: boolean
+          id: string
+          match_games: Database["public"]["Enums"]["game_kind"][] | null
+          match_name_excludes: string[] | null
+          match_name_keywords: string[] | null
+          match_product_types: string[] | null
+          match_retailers: string[] | null
+          msrp_usd_max: number | null
+          msrp_usd_min: number | null
+          name: string
+          priority: number
+          release_within_days: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          action?: Database["public"]["Enums"]["rule_action"]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          match_games?: Database["public"]["Enums"]["game_kind"][] | null
+          match_name_excludes?: string[] | null
+          match_name_keywords?: string[] | null
+          match_product_types?: string[] | null
+          match_retailers?: string[] | null
+          msrp_usd_max?: number | null
+          msrp_usd_min?: number | null
+          name: string
+          priority?: number
+          release_within_days?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          action?: Database["public"]["Enums"]["rule_action"]
+          created_at?: string
+          enabled?: boolean
+          id?: string
+          match_games?: Database["public"]["Enums"]["game_kind"][] | null
+          match_name_excludes?: string[] | null
+          match_name_keywords?: string[] | null
+          match_product_types?: string[] | null
+          match_retailers?: string[] | null
+          msrp_usd_max?: number | null
+          msrp_usd_min?: number | null
+          name?: string
+          priority?: number
+          release_within_days?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       ebay_api_usage: {
         Row: {
@@ -385,6 +629,27 @@ export type Database = {
           expires_at?: string
           fetched_at?: string
           id?: number
+        }
+        Relationships: []
+      }
+      ebay_user_call_log: {
+        Row: {
+          called_at: string
+          card_id: string
+          id: number
+          user_id: string
+        }
+        Insert: {
+          called_at?: string
+          card_id: string
+          id?: number
+          user_id: string
+        }
+        Update: {
+          called_at?: string
+          card_id?: string
+          id?: number
+          user_id?: string
         }
         Relationships: []
       }
@@ -595,6 +860,74 @@ export type Database = {
             columns: ["trip_id"]
             isOneToOne: false
             referencedRelation: "trips"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      monitor_api_usage: {
+        Row: {
+          call_count: number
+          call_date: string
+          cap_hit_count: number
+          first_call_at: string | null
+          last_call_at: string | null
+        }
+        Insert: {
+          call_count?: number
+          call_date: string
+          cap_hit_count?: number
+          first_call_at?: string | null
+          last_call_at?: string | null
+        }
+        Update: {
+          call_count?: number
+          call_date?: string
+          cap_hit_count?: number
+          first_call_at?: string | null
+          last_call_at?: string | null
+        }
+        Relationships: []
+      }
+      monitor_domain_locks: {
+        Row: {
+          domain: string
+          last_call_at: string
+        }
+        Insert: {
+          domain: string
+          last_call_at?: string
+        }
+        Update: {
+          domain?: string
+          last_call_at?: string
+        }
+        Relationships: []
+      }
+      monitor_user_check_log: {
+        Row: {
+          checked_at: string
+          id: number
+          link_id: string
+          user_id: string
+        }
+        Insert: {
+          checked_at?: string
+          id?: number
+          link_id: string
+          user_id: string
+        }
+        Update: {
+          checked_at?: string
+          id?: number
+          link_id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "monitor_user_check_log_link_id_fkey"
+            columns: ["link_id"]
+            isOneToOne: false
+            referencedRelation: "drop_retailer_links"
             referencedColumns: ["id"]
           },
         ]
@@ -829,6 +1162,39 @@ export type Database = {
           email?: string | null
           id?: string
           role?: Database["public"]["Enums"]["user_role"]
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          device_label: string | null
+          endpoint: string
+          id: number
+          last_used_at: string | null
+          p256dh: string
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          device_label?: string | null
+          endpoint: string
+          id?: number
+          last_used_at?: string | null
+          p256dh: string
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          device_label?: string | null
+          endpoint?: string
+          id?: number
+          last_used_at?: string | null
+          p256dh?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -1261,6 +1627,7 @@ export type Database = {
         Args: never
         Returns: Database["public"]["Enums"]["user_role"]
       }
+      ebay_card_for_check: { Args: { p_card_id: string }; Returns: Json }
       ebay_replace_listings: {
         Args: { p_card_id: string; p_listings: Json }
         Returns: Json
@@ -1281,6 +1648,14 @@ export type Database = {
         }[]
       }
       ebay_try_consume_call: { Args: { p_calls?: number }; Returns: Json }
+      ebay_user_try_check: {
+        Args: { p_card_id: string; p_user_id: string }
+        Returns: Json
+      }
+      evaluate_drop_against_rules: {
+        Args: { p_drop_id: string }
+        Returns: Json
+      }
       get_inventory_item_detail: { Args: { p_item_id: string }; Returns: Json }
       get_vault_secret: { Args: { p_name: string }; Returns: string }
       inventory_item_activity_log: {
@@ -1293,10 +1668,45 @@ export type Database = {
         Returns: Json
       }
       link_drops_to_cards: { Args: never; Returns: number }
+      monitor_claim_due_links: {
+        Args: { p_limit?: number }
+        Returns: {
+          detector_hint: string
+          drop_id: string
+          link_id: string
+          monitor_mode: Database["public"]["Enums"]["monitor_mode"]
+          retailer: string
+          url: string
+        }[]
+      }
+      monitor_record_result: {
+        Args: {
+          p_currency?: string
+          p_duration_ms?: number
+          p_error?: string
+          p_http_status?: number
+          p_link_id: string
+          p_price?: number
+          p_signals?: Json
+          p_state: Database["public"]["Enums"]["monitor_state"]
+        }
+        Returns: Json
+      }
+      monitor_set_link_mode: {
+        Args: {
+          p_link_id: string
+          p_mode: Database["public"]["Enums"]["monitor_mode"]
+        }
+        Returns: Json
+      }
+      monitor_try_consume_call: { Args: { p_calls?: number }; Returns: Json }
+      monitor_try_user_check: { Args: { p_link_id: string }; Returns: Json }
+      promote_calendar_entry: { Args: { p_entry_id: string }; Returns: string }
       prune_old_snapshots: { Args: { p_keep_days?: number }; Returns: Json }
       reallocate_trip_travel: { Args: { p_trip_id: string }; Returns: Json }
       refresh_ebay_candidates_pool: { Args: never; Returns: undefined }
       refresh_potential_deals: { Args: never; Returns: Json }
+      rerun_rule_for_user: { Args: { p_rule_id: string }; Returns: number }
       search_cards: {
         Args: {
           p_game?: Database["public"]["Enums"]["game_kind"]
@@ -1366,6 +1776,13 @@ export type Database = {
         | "in_transit"
         | "landed"
         | "cancelled"
+      monitor_mode: "off" | "manual" | "cold" | "warm" | "hot"
+      monitor_state: "unknown" | "in_stock" | "out_of_stock" | "queue" | "error"
+      rule_action:
+        | "suggest"
+        | "auto_watch_cold"
+        | "auto_watch_warm"
+        | "auto_watch_hot"
       trip_direction: "US_TO_EU" | "EU_TO_US" | "DOMESTIC" | "OTHER"
       user_role: "admin" | "user"
     }
@@ -1528,9 +1945,16 @@ export const Constants = {
         "landed",
         "cancelled",
       ],
+      monitor_mode: ["off", "manual", "cold", "warm", "hot"],
+      monitor_state: ["unknown", "in_stock", "out_of_stock", "queue", "error"],
+      rule_action: [
+        "suggest",
+        "auto_watch_cold",
+        "auto_watch_warm",
+        "auto_watch_hot",
+      ],
       trip_direction: ["US_TO_EU", "EU_TO_US", "DOMESTIC", "OTHER"],
       user_role: ["admin", "user"],
     },
   },
 } as const
-

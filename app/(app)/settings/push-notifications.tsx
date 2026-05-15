@@ -60,12 +60,12 @@ export function PushNotifications({ userId }: { userId: string }) {
         if (typeof v === "string" && v) setVapidKey(v);
       });
     supabase
-      .from("push_subscriptions" as never)
+      .from("push_subscriptions")
       .select("id, endpoint, device_label, created_at")
       .eq("user_id", userId)
       .order("created_at", { ascending: false })
       .then(({ data }) => {
-        setSubs(((data as unknown as Subscription[]) ?? []));
+        setSubs((data ?? []) as Subscription[]);
       });
 
     if (has) {
@@ -122,7 +122,7 @@ export function PushNotifications({ userId }: { userId: string }) {
 
       const supabase = createClient();
       const { error: err } = await supabase
-        .from("push_subscriptions" as never)
+        .from("push_subscriptions")
         .upsert(
           {
             user_id: userId,
@@ -132,8 +132,8 @@ export function PushNotifications({ userId }: { userId: string }) {
             device_label:
               navigator.userAgent.match(/(iPhone|iPad|Android|Macintosh|Windows|Linux)/)?.[1] ??
               null,
-          } as never,
-          { onConflict: "user_id,endpoint" } as never,
+          },
+          { onConflict: "user_id,endpoint" },
         );
       if (err) {
         setError(err.message);
@@ -141,11 +141,11 @@ export function PushNotifications({ userId }: { userId: string }) {
       }
       setCurrentEndpoint(endpoint);
       const { data: refreshed } = await supabase
-        .from("push_subscriptions" as never)
+        .from("push_subscriptions")
         .select("id, endpoint, device_label, created_at")
         .eq("user_id", userId)
         .order("created_at", { ascending: false });
-      setSubs(((refreshed as unknown as Subscription[]) ?? []));
+      setSubs((refreshed ?? []) as Subscription[]);
     } catch (e) {
       setError(String(e));
     } finally {
@@ -165,7 +165,7 @@ export function PushNotifications({ userId }: { userId: string }) {
         await sub.unsubscribe();
         const supabase = createClient();
         await supabase
-          .from("push_subscriptions" as never)
+          .from("push_subscriptions")
           .delete()
           .eq("user_id", userId)
           .eq("endpoint", endpoint);
@@ -181,7 +181,7 @@ export function PushNotifications({ userId }: { userId: string }) {
 
   async function removeRemote(id: number) {
     const supabase = createClient();
-    await supabase.from("push_subscriptions" as never).delete().eq("id", id);
+    await supabase.from("push_subscriptions").delete().eq("id", id);
     setSubs((s) => s.filter((x) => x.id !== id));
   }
 
