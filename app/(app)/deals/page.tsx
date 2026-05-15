@@ -294,12 +294,10 @@ function DealsPageInner() {
   });
 
   const [openDeal, setOpenDeal] = useState<Deal | null>(null);
-  const [provenanceCardId, setProvenanceCardId] = useState<string | null>(null);
-  const [provenanceTitle, setProvenanceTitle] = useState<string>("");
+  const [provenanceDeal, setProvenanceDeal] = useState<Deal | null>(null);
 
   function showProvenance(deal: Deal) {
-    setProvenanceCardId(deal.card_id);
-    setProvenanceTitle(deal.name);
+    setProvenanceDeal(deal);
   }
 
   const deals = dealsQuery.data ?? [];
@@ -574,9 +572,8 @@ function DealsPageInner() {
         onShowProvenance={showProvenance}
       />
       <ProvenanceDialog
-        cardId={provenanceCardId}
-        title={provenanceTitle}
-        onClose={() => setProvenanceCardId(null)}
+        deal={provenanceDeal}
+        onClose={() => setProvenanceDeal(null)}
       />
     </div>
   );
@@ -1447,27 +1444,25 @@ function Chips({ label, items }: { label: string; items: string[] }) {
 }
 
 function ProvenanceDialog({
-  cardId,
-  title,
+  deal,
   onClose,
 }: {
-  cardId: string | null;
-  title: string;
+  deal: Deal | null;
   onClose: () => void;
 }) {
-  const open = cardId !== null;
+  const open = deal !== null;
   return (
     <Dialog.Root open={open} onOpenChange={(v) => (!v ? onClose() : undefined)}>
       <Dialog.Portal>
         <Dialog.Overlay className="fixed inset-0 z-50 bg-black/60 data-[state=open]:animate-in data-[state=open]:fade-in-0" />
         <Dialog.Content className="fixed left-1/2 top-1/2 z-50 max-h-[90vh] w-[calc(100vw-2rem)] max-w-2xl -translate-x-1/2 -translate-y-1/2 overflow-y-auto rounded-lg border bg-background p-6 shadow-xl focus:outline-none">
           <Dialog.Title className="text-lg font-bold tracking-tight pr-8">
-            Where this number comes from
+            The math behind this deal
           </Dialog.Title>
           <Dialog.Description className="text-xs text-muted-foreground">
-            {title}
+            {deal?.name ?? ""}
           </Dialog.Description>
-          {cardId && <ProvenanceContent cardId={cardId} />}
+          {deal && <ProvenanceContent deal={deal} />}
           <Dialog.Close className="absolute right-3 top-3 rounded-md p-1 text-muted-foreground hover:bg-accent">
             <X className="h-4 w-4" />
             <span className="sr-only">Close</span>
@@ -1478,7 +1473,136 @@ function ProvenanceDialog({
   );
 }
 
-function ProvenanceContent({ cardId }: { cardId: string }) {
+type FeeSettings = {
+  cardmarketFeePct: number;
+  paymentFeePct: number;
+  shippingUsd: number;
+};
+
+const DEFAULT_FEE_SETTINGS: FeeSettings = {
+  cardmarketFeePct: 0.05,
+  paymentFeePct: 0.03,
+  shippingUsd: 18,
+};
+
+type MathBreakdown = {
+  buyUsd: number;
+  buyEur: number;
+  sellEur: number;
+  fxRate: number;
+  sellSource: "floor" | "trend";
+  gross: number;
+  cmFee: number;
+  shippingEur: number;
+  paymentFee: number;
+  net: number;
+  settings: FeeSettings;
+};
+
+function buildMath(deal: Deal, settings: FeeSettings): MathBreakdown | null {
+  const buyUsd = num(deal.us_buy_usd);
+  const buyEur = deal.us_buy_eur != null ? num(deal.us_buy_eur) : 0;
+  const euLow = deal.eu_low_min != null ? num(deal.eu_low_min) : 0;
+  const euSell = num(deal.eu_sell_eur);
+
+  const useFloor = euLow > 0;
+  const sellEur = useFloor ? euLow : euSell;
+
+  if (buyUsd <= 0 || buyEur <= 0 || sellEur <= 0) return null;
+
+  const fxRate = buyEur / buyUsd;
+  const gross = sellEur - buyEur;
+  const cmFee = sellEur * settings.cardmarketFeePct;
+  const shippingEur = settings.shippingUsd * fxRate;
+  const paymentFee = buyEur * settings.paymentFeePct;
+  const net = gross - cmFee - shippingEur - paymentFee;
+
+  return {
+    buyUsd,
+    buyEur,
+    sellEur,
+    fxRate,
+    sellSource: useFloor ? "floor" : "trend",
+    gross,
+    cmFee,
+    shippingEur,
+    paymentFee,
+    net,
+    settings,
+  };
+}
+
+type RealityWarning = {
+  key: string;
+  severity: "high" | "medium";
+  title: string;
+  detail: string;
+};
+
+function buildWarnings(deal: Deal): RealityWarning[] {
+  const out: RealityWarning[] = [];
+  const usMin = num(deal.us_market_min);
+  const usMax = num(deal.us_market_max);
+  const euLow = deal.eu_low_min != null ? num(deal.eu_low_min) : 0;
+  const euSell = num(deal.eu_sell_eur);
+
+  if (euLow > 0 && euSell > euLow * 1.5) {
+    out.push({
+      key: "eu_trend_above_floor",
+      severity: "high",
+      title: "Cardmarket trend is distorted by outlier sales",
+      detail: `Lowest active listing is ${formatCurrency(euLow, "EUR")} but the recent-sales aggregate is ${formatCurrency(euSell, "EUR")} (${(euSell / euLow).toFixed(1)}× higher). That usually means a recent PSA / graded sale is in the average. The floor math above uses the lowest listing, which is the safer number.`,
+    });
+  }
+
+  if (usMin > 0 && usMax > 0 && usMax / usMin > 2) {
+    out.push({
+      key: "us_wide_spread",
+      severity: "high",
+      title: "TCGplayer aggregate spans graded copies",
+      detail: `TCGplayer high (${formatCurrency(usMax, "USD")}) is ${(usMax / usMin).toFixed(1)}× the low (${formatCurrency(usMin, "USD")}). The market price likely averages raw NM and graded sales together, so the buy cost above assumes you're sourcing a raw NM copy.`,
+    });
+  }
+
+  if (deal.match_confidence === "medium") {
+    out.push({
+      key: "match_medium",
+      severity: "medium",
+      title: "Variant matching is approximate",
+      detail: "TCGplayer holofoil paired with Cardmarket normal — correct for most vintage holos, but verify the EU listing is the same printing as the US product.",
+    });
+  } else if (deal.match_confidence === "low") {
+    out.push({
+      key: "match_low",
+      severity: "high",
+      title: "Variant matching is low confidence",
+      detail: "No clean pairing between TCGplayer and Cardmarket variants — treat this as a lead, not a confirmed match.",
+    });
+  }
+
+  if (euLow <= 0) {
+    out.push({
+      key: "no_floor",
+      severity: "medium",
+      title: "No active EU listing on file",
+      detail: "Math falls back to Cardmarket trend, which can be inflated by outlier sales. Cross-check the price before buying.",
+    });
+  }
+
+  if (deal.variant_spread_warning) {
+    out.push({
+      key: "eu_variant_spread",
+      severity: "medium",
+      title: "EU price spread is wide across variants",
+      detail: "The cheapest EU listing may be a different printing/language than the US product you'd buy. Confirm which variant the listing represents.",
+    });
+  }
+
+  return out;
+}
+
+function ProvenanceContent({ deal }: { deal: Deal }) {
+  const cardId = deal.card_id;
   const provenanceQuery = useQuery<ProvenanceRow[]>({
     queryKey: ["card_price_provenance", cardId],
     queryFn: async () => {
@@ -1492,12 +1616,43 @@ function ProvenanceContent({ cardId }: { cardId: string }) {
     },
   });
 
-  if (provenanceQuery.isLoading) {
-    return (
-      <p className="mt-4 text-sm text-muted-foreground">Loading source data…</p>
-    );
-  }
+  const settingsQuery = useQuery<FeeSettings>({
+    queryKey: ["deal-fees-settings"],
+    queryFn: async () => {
+      const supabase = createClient();
+      const { data, error } = await supabase
+        .from("settings")
+        .select("key, value")
+        .in("key", [
+          "default_cardmarket_fee_pct",
+          "default_payment_fee_pct",
+          "default_shipping_us_to_eu_usd",
+        ]);
+      if (error) throw new Error(error.message);
+      const map = new Map<string, number>();
+      for (const row of data ?? []) {
+        const v = (row as { value: unknown }).value;
+        const n = typeof v === "number" ? v : Number(v);
+        if (!Number.isNaN(n)) map.set((row as { key: string }).key, n);
+      }
+      return {
+        cardmarketFeePct:
+          map.get("default_cardmarket_fee_pct") ?? DEFAULT_FEE_SETTINGS.cardmarketFeePct,
+        paymentFeePct:
+          map.get("default_payment_fee_pct") ?? DEFAULT_FEE_SETTINGS.paymentFeePct,
+        shippingUsd:
+          map.get("default_shipping_us_to_eu_usd") ?? DEFAULT_FEE_SETTINGS.shippingUsd,
+      };
+    },
+  });
 
+  const settings = settingsQuery.data ?? DEFAULT_FEE_SETTINGS;
+  const math = buildMath(deal, settings);
+  const warnings = buildWarnings(deal);
+
+  if (provenanceQuery.isLoading) {
+    return <p className="mt-4 text-sm text-muted-foreground">Loading source data…</p>;
+  }
   if (provenanceQuery.error) {
     return (
       <p className="mt-4 text-sm text-destructive">
@@ -1507,24 +1662,238 @@ function ProvenanceContent({ cardId }: { cardId: string }) {
   }
 
   const rows = provenanceQuery.data ?? [];
-  if (rows.length === 0) {
-    return (
-      <p className="mt-4 text-sm text-muted-foreground">No source data available for this card.</p>
-    );
-  }
-
   const grouped = new Map<string, ProvenanceRow[]>();
   for (const row of rows) {
-    const key = row.source;
-    if (!grouped.has(key)) grouped.set(key, []);
-    grouped.get(key)!.push(row);
+    if (!grouped.has(row.source)) grouped.set(row.source, []);
+    grouped.get(row.source)!.push(row);
   }
 
   return (
-    <div className="mt-4 space-y-3">
-      {[...grouped.entries()].map(([source, srows]) => (
-        <ProvenanceSourceCard key={source} source={source} rows={srows} />
-      ))}
+    <div className="mt-4 space-y-4">
+      {math ? (
+        <MathPanel math={math} />
+      ) : (
+        <p className="rounded-md border bg-muted/30 p-3 text-xs text-muted-foreground">
+          Not enough price data to compute the math breakdown.
+        </p>
+      )}
+      {warnings.length > 0 && <RealityCheckPanel warnings={warnings} />}
+      {grouped.size > 0 && <RawDataSection grouped={grouped} />}
+    </div>
+  );
+}
+
+function MathPanel({ math }: { math: MathBreakdown }) {
+  const {
+    buyUsd,
+    buyEur,
+    sellEur,
+    fxRate,
+    sellSource,
+    gross,
+    cmFee,
+    shippingEur,
+    paymentFee,
+    net,
+    settings,
+  } = math;
+  const netPositive = net >= 0;
+  return (
+    <div className="rounded-md border bg-muted/30 p-3">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        The math
+      </p>
+      <dl className="space-y-1 text-sm">
+        <MathRow
+          label="Buy on TCGplayer"
+          sub="market price"
+          value={formatCurrency(buyUsd, "USD")}
+        />
+        <MathRow
+          label="× FX (USD → EUR)"
+          value={`× ${fxRate.toFixed(4)}`}
+          muted
+        />
+        <MathDivider />
+        <MathRow
+          label="Buy cost"
+          value={formatCurrency(buyEur, "EUR")}
+          bold
+        />
+        <div className="h-1" />
+        <MathRow
+          label="Sell on Cardmarket"
+          sub={sellSource === "floor" ? "lowest listing" : "trend (no active listing)"}
+          value={formatCurrency(sellEur, "EUR")}
+        />
+        <MathDivider />
+        <MathRow
+          label="Gross profit"
+          value={`${gross >= 0 ? "+" : ""}${formatCurrency(gross, "EUR")}`}
+          bold
+          tone={gross >= 0 ? "positive" : "negative"}
+        />
+      </dl>
+      <p className="mt-3 mb-1 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+        After fees &amp; shipping
+      </p>
+      <dl className="space-y-1 text-sm">
+        <MathRow
+          label={`Cardmarket fee (${(settings.cardmarketFeePct * 100).toFixed(1)}%)`}
+          sub="on sell price"
+          value={`−${formatCurrency(cmFee, "EUR")}`}
+          tone="negative"
+        />
+        <MathRow
+          label="Shipping US → EU"
+          sub={`${formatCurrency(settings.shippingUsd, "USD")} per card`}
+          value={`−${formatCurrency(shippingEur, "EUR")}`}
+          tone="negative"
+        />
+        <MathRow
+          label={`Payment / FX fees (${(settings.paymentFeePct * 100).toFixed(1)}%)`}
+          sub="on buy cost"
+          value={`−${formatCurrency(paymentFee, "EUR")}`}
+          tone="negative"
+        />
+        <MathDivider />
+        <MathRow
+          label="Realistic net profit"
+          value={`${netPositive ? "+" : ""}${formatCurrency(net, "EUR")}`}
+          bold
+          tone={netPositive ? "positive" : "negative"}
+          emphasis
+        />
+      </dl>
+      <p className="mt-2 text-[10px] text-muted-foreground">
+        Fees configurable in Settings (default_cardmarket_fee_pct, default_payment_fee_pct,
+        default_shipping_us_to_eu_usd).
+      </p>
+    </div>
+  );
+}
+
+function MathRow({
+  label,
+  sub,
+  value,
+  bold,
+  emphasis,
+  muted,
+  tone,
+}: {
+  label: string;
+  sub?: string;
+  value: string;
+  bold?: boolean;
+  emphasis?: boolean;
+  muted?: boolean;
+  tone?: "positive" | "negative";
+}) {
+  const toneClass =
+    tone === "positive"
+      ? "text-emerald-600 dark:text-emerald-500"
+      : tone === "negative"
+        ? "text-destructive"
+        : undefined;
+  return (
+    <div className="flex items-baseline justify-between gap-2">
+      <span className={cn("text-xs", muted ? "text-muted-foreground" : "text-foreground")}>
+        {label}
+        {sub && <span className="ml-1 text-muted-foreground">· {sub}</span>}
+      </span>
+      <span
+        className={cn(
+          "tabular-nums",
+          bold ? "font-semibold" : "font-normal",
+          emphasis && "text-base font-bold",
+          toneClass,
+        )}
+      >
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function MathDivider() {
+  return <div className="border-t border-dashed border-border/80" />;
+}
+
+function RealityCheckPanel({ warnings }: { warnings: RealityWarning[] }) {
+  const hasHigh = warnings.some((w) => w.severity === "high");
+  return (
+    <div
+      className={cn(
+        "rounded-md border p-3",
+        hasHigh
+          ? "border-amber-300 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/30"
+          : "border-border bg-muted/30",
+      )}
+    >
+      <p
+        className={cn(
+          "mb-2 flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide",
+          hasHigh ? "text-amber-700 dark:text-amber-300" : "text-muted-foreground",
+        )}
+      >
+        <AlertTriangle className="h-3.5 w-3.5" />
+        Reality check
+      </p>
+      <ul className="space-y-2">
+        {warnings.map((w) => (
+          <li key={w.key} className="text-xs">
+            <p
+              className={cn(
+                "font-semibold",
+                w.severity === "high"
+                  ? "text-amber-800 dark:text-amber-200"
+                  : "text-foreground",
+              )}
+            >
+              {w.title}
+            </p>
+            <p className="text-muted-foreground">{w.detail}</p>
+          </li>
+        ))}
+      </ul>
+      <div className="mt-3 space-y-1 border-t border-border/60 pt-2 text-[11px] text-muted-foreground">
+        <p className="font-semibold text-foreground/80">Before buying:</p>
+        <p>☐ Confirm the EU listing is raw near-mint (not PSA / graded)</p>
+        <p>☐ Cross-check eBay completed sales for sanity</p>
+        <p>☐ Verify the variant / language matches what you can source</p>
+      </div>
+    </div>
+  );
+}
+
+function RawDataSection({ grouped }: { grouped: Map<string, ProvenanceRow[]> }) {
+  const [open, setOpen] = useState(false);
+  return (
+    <div className="rounded-md border bg-muted/20">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center justify-between gap-2 p-3 text-left"
+        aria-expanded={open}
+      >
+        <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          Raw source data
+        </span>
+        <ChevronDown
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            open && "rotate-180",
+          )}
+        />
+      </button>
+      {open && (
+        <div className="space-y-3 border-t bg-background/40 p-3">
+          {[...grouped.entries()].map(([source, srows]) => (
+            <ProvenanceSourceCard key={source} source={source} rows={srows} />
+          ))}
+        </div>
+      )}
     </div>
   );
 }
