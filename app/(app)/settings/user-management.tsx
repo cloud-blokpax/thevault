@@ -38,13 +38,39 @@ export function UserManagement({ currentUserId }: { currentUserId: string }) {
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("user");
+  const [setTempPassword, setSetTempPassword] = useState(false);
+  const [temporaryPassword, setTemporaryPassword] = useState("");
   const [feedback, setFeedback] = useState<{
     kind: "success" | "error";
     text: string;
   } | null>(null);
 
+  const generatePassword = () => {
+    const chars =
+      "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*";
+    let password = "";
+    const cryptoObj =
+      typeof window !== "undefined" ? window.crypto : undefined;
+    if (cryptoObj?.getRandomValues) {
+      const buf = new Uint32Array(12);
+      cryptoObj.getRandomValues(buf);
+      for (let i = 0; i < buf.length; i++) {
+        password += chars.charAt(buf[i] % chars.length);
+      }
+    } else {
+      for (let i = 0; i < 12; i++) {
+        password += chars.charAt(Math.floor(Math.random() * chars.length));
+      }
+    }
+    setTemporaryPassword(password);
+  };
+
   const inviteMutation = useMutation({
-    mutationFn: async (payload: { email: string; role: Role }) => {
+    mutationFn: async (payload: {
+      email: string;
+      role: Role;
+      temporaryPassword: string | null;
+    }) => {
       const { data, error } = await supabase.functions.invoke(
         "admin-invite-user",
         { body: payload },
@@ -53,10 +79,17 @@ export function UserManagement({ currentUserId }: { currentUserId: string }) {
       if (data?.error) throw new Error(data.error);
       return data;
     },
-    onSuccess: () => {
-      setFeedback({ kind: "success", text: `Invite sent to ${inviteEmail}.` });
+    onSuccess: (_data, variables) => {
+      setFeedback({
+        kind: "success",
+        text: variables.temporaryPassword
+          ? `Invite sent to ${inviteEmail} with temporary password.`
+          : `Invite sent to ${inviteEmail}.`,
+      });
       setInviteEmail("");
       setInviteRole("user");
+      setSetTempPassword(false);
+      setTemporaryPassword("");
       queryClient.invalidateQueries({ queryKey: ["admin-profiles"] });
     },
     onError: (err: Error) => {
@@ -82,7 +115,13 @@ export function UserManagement({ currentUserId }: { currentUserId: string }) {
           onSubmit={(e) => {
             e.preventDefault();
             setFeedback(null);
-            inviteMutation.mutate({ email: inviteEmail.trim(), role: inviteRole });
+            inviteMutation.mutate({
+              email: inviteEmail.trim(),
+              role: inviteRole,
+              temporaryPassword: setTempPassword
+                ? temporaryPassword.trim()
+                : null,
+            });
           }}
           className="space-y-3 rounded-lg border bg-muted/30 p-3"
         >
@@ -124,11 +163,63 @@ export function UserManagement({ currentUserId }: { currentUserId: string }) {
             </div>
             <Button
               type="submit"
-              disabled={inviteMutation.isPending || !inviteEmail.includes("@")}
+              disabled={
+                inviteMutation.isPending ||
+                !inviteEmail.includes("@") ||
+                (setTempPassword && temporaryPassword.length < 6)
+              }
               className="h-10"
             >
               {inviteMutation.isPending ? "Sending…" : "Send invite"}
             </Button>
+          </div>
+          <div className="space-y-2 rounded-md border bg-background/60 p-2.5">
+            <label className="flex items-center gap-2 text-xs font-medium text-foreground">
+              <input
+                type="checkbox"
+                checked={setTempPassword}
+                onChange={(e) => {
+                  setSetTempPassword(e.target.checked);
+                  if (!e.target.checked) setTemporaryPassword("");
+                }}
+                className="h-3.5 w-3.5"
+              />
+              Set temporary password (optional)
+            </label>
+            {setTempPassword ? (
+              <div className="space-y-1.5">
+                <div className="flex gap-2">
+                  <Input
+                    type="text"
+                    value={temporaryPassword}
+                    onChange={(e) => setTemporaryPassword(e.target.value)}
+                    placeholder="Temporary password"
+                    minLength={6}
+                    required
+                    autoComplete="off"
+                    spellCheck={false}
+                    className="font-mono"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={generatePassword}
+                    className="h-10 whitespace-nowrap"
+                  >
+                    Generate
+                  </Button>
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  User will see this password on the setup page and must replace
+                  it before signing in.
+                </p>
+              </div>
+            ) : (
+              <p className="text-[11px] text-muted-foreground">
+                User will create their own password after clicking the invite
+                link.
+              </p>
+            )}
           </div>
           {feedback && (
             <p
