@@ -16,9 +16,9 @@ export function PromoteCalendarRow({ entryId }: { entryId: string }) {
     setPending(true);
     setError(null);
     const supabase = createClient();
-    const { error: err } = await supabase.rpc("promote_calendar_entry" as never, {
+    const { error: err } = await supabase.rpc("promote_calendar_entry", {
       p_entry_id: entryId,
-    } as never);
+    });
     setPending(false);
     if (err) {
       setError(err.message);

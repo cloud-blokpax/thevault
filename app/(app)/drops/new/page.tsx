@@ -75,7 +75,7 @@ export default function NewDropPage() {
     mutationFn: async () => {
       const supabase = createClient();
       const { data: drop, error: dropErr } = await supabase
-        .from("product_drops" as never)
+        .from("product_drops")
         .insert({
           game,
           name,
@@ -88,15 +88,15 @@ export default function NewDropPage() {
           msrp_eur: msrpEur ? Number(msrpEur) : null,
           notes: notes || null,
           status,
-        } as never)
+        })
         .select("id")
         .single();
       if (dropErr) throw dropErr;
-      const dropId = (drop as unknown as { id: string }).id;
+      const dropId = drop.id;
 
       const validLinks = links.filter((l) => l.url.trim() && l.retailer.trim());
       if (validLinks.length > 0) {
-        const { error: linkErr } = await supabase.from("drop_retailer_links" as never).insert(
+        const { error: linkErr } = await supabase.from("drop_retailer_links").insert(
           validLinks.map((l, i) => ({
             drop_id: dropId,
             retailer: l.retailer.trim().toLowerCase(),
@@ -106,7 +106,7 @@ export default function NewDropPage() {
             price_eur: l.price_eur ? Number(l.price_eur) : null,
             notes: l.notes || null,
             sort_order: i,
-          })) as never,
+          })),
         );
         if (linkErr) throw linkErr;
       }

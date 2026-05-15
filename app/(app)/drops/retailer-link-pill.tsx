@@ -69,7 +69,7 @@ function deriveState(link: RetailerLinkPillProps["link"]): MonitorState {
 function timeAgo(iso: string | null | undefined): string | null {
   if (!iso) return null;
   const t = new Date(iso).getTime();
-  if (Number.isNaN(t)) return null;
+  if (!Number.isFinite(t)) return null;
   const s = Math.max(0, Math.round((Date.now() - t) / 1000));
   if (s < 60) return `${s}s ago`;
   if (s < 3600) return `${Math.round(s / 60)}m ago`;
@@ -102,20 +102,25 @@ export function RetailerLinkPill({
     e.preventDefault();
     e.stopPropagation();
     if (pending || monitored) return;
-    const next =
-      linkState.in_stock === null ? true : linkState.in_stock === true ? false : null;
+
+    const prev = linkState.in_stock;
+    const next = prev === null ? true : prev === true ? false : null;
+    const checkedAt = new Date().toISOString();
+
+    setLinkState((s) => ({ ...s, in_stock: next, stock_checked_at: checkedAt }));
     setPending(true);
+    setError(null);
+
     const supabase = createClient();
     const { error: err } = await supabase
       .from("drop_retailer_links")
-      .update({
-        in_stock: next,
-        stock_checked_at: new Date().toISOString(),
-      })
+      .update({ in_stock: next, stock_checked_at: checkedAt })
       .eq("id", linkState.id);
+
     setPending(false);
-    if (!err) {
-      setLinkState((s) => ({ ...s, in_stock: next, stock_checked_at: new Date().toISOString() }));
+    if (err) {
+      setLinkState((s) => ({ ...s, in_stock: prev }));
+      setError(err.message);
     }
   }
 
@@ -126,10 +131,10 @@ export function RetailerLinkPill({
     const prev = mode;
     setMode(next);
     const supabase = createClient();
-    const { error: err } = await supabase.rpc("monitor_set_link_mode" as never, {
+    const { error: err } = await supabase.rpc("monitor_set_link_mode", {
       p_link_id: linkState.id,
       p_mode: next,
-    } as never);
+    });
     setPending(false);
     if (err) {
       setMode(prev);

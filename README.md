@@ -23,7 +23,7 @@ npm run dev
 
 | Var | Description |
 | --- | --- |
-| `NEXT_PUBLIC_SUPABASE_URL` | `https://gcdskpynfpbxazeapgls.supabase.co` |
+| `NEXT_PUBLIC_SUPABASE_URL` | `https://oclhdvxktfvkmjkdfeic.supabase.co` |
 | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase project anon key |
 
 Set the same variables in **Cloudflare Pages → Settings → Environment variables**.
@@ -62,6 +62,16 @@ In the Cloudflare Pages dashboard:
 ## PWA
 
 `public/manifest.webmanifest` + `public/sw.js` register on load. Replace the placeholder icons in `public/icons/` with real artwork before shipping.
+
+## Running migrations
+
+Migrations in `supabase/migrations/` are **not** auto-applied on deploy. Apply them manually:
+
+**Option A — Claude in chat:** ask Claude to "apply the new migrations to Supabase". It will use the Supabase MCP tools (`apply_migration` / `list_migrations`) on project `oclhdvxktfvkmjkdfeic`.
+
+**Option B — Supabase dashboard:** open the [SQL editor](https://supabase.com/dashboard/project/oclhdvxktfvkmjkdfeic/sql/new), paste the SQL from the new file, run it.
+
+After applying any migration that adds tables, RPCs, or columns, regenerate `types/database.ts` (see `docs/thevault-claude-code-fixes.md` Task 2) and remove any stale `as never` casts.
 
 ## Out of scope (Phase 2/3)
 

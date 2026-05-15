@@ -96,14 +96,14 @@ export function WatchRules({ userId }: { userId: string }) {
   useEffect(() => {
     const supabase = createClient();
     supabase
-      .from("drop_watch_rules" as never)
+      .from("drop_watch_rules")
       .select(
         "id, user_id, name, enabled, priority, match_games, match_product_types, match_retailers, match_name_keywords, match_name_excludes, msrp_usd_min, msrp_usd_max, release_within_days, action",
       )
       .eq("user_id", userId)
       .order("priority", { ascending: true })
       .order("created_at", { ascending: true })
-      .then(({ data }) => setRules((data as unknown as Rule[]) ?? []));
+      .then(({ data }) => setRules(((data ?? []) as unknown as Rule[])));
   }, [userId]);
 
   async function saveRule(r: Omit<Rule, "id"> & { id?: string }) {
@@ -129,8 +129,8 @@ export function WatchRules({ userId }: { userId: string }) {
     let result;
     if (r.id) {
       result = await supabase
-        .from("drop_watch_rules" as never)
-        .update(payload as never)
+        .from("drop_watch_rules")
+        .update(payload)
         .eq("id", r.id)
         .select(
           "id, user_id, name, enabled, priority, match_games, match_product_types, match_retailers, match_name_keywords, match_name_excludes, msrp_usd_min, msrp_usd_max, release_within_days, action",
@@ -138,8 +138,8 @@ export function WatchRules({ userId }: { userId: string }) {
         .single();
     } else {
       result = await supabase
-        .from("drop_watch_rules" as never)
-        .insert(payload as never)
+        .from("drop_watch_rules")
+        .insert(payload)
         .select(
           "id, user_id, name, enabled, priority, match_games, match_product_types, match_retailers, match_name_keywords, match_name_excludes, msrp_usd_min, msrp_usd_max, release_within_days, action",
         )
@@ -165,7 +165,7 @@ export function WatchRules({ userId }: { userId: string }) {
     // Re-run the rule against the last 90 days of drops so the user
     // sees suggestions immediately.
     if (saved.enabled) {
-      supabase.rpc("rerun_rule_for_user" as never, { p_rule_id: saved.id } as never).then(() => {});
+      supabase.rpc("rerun_rule_for_user", { p_rule_id: saved.id }).then(() => {});
     }
   }
 
@@ -174,18 +174,18 @@ export function WatchRules({ userId }: { userId: string }) {
     const next = !r.enabled;
     setRules((rs) => rs.map((x) => (x.id === r.id ? { ...x, enabled: next } : x)));
     await supabase
-      .from("drop_watch_rules" as never)
-      .update({ enabled: next, updated_at: new Date().toISOString() } as never)
+      .from("drop_watch_rules")
+      .update({ enabled: next, updated_at: new Date().toISOString() })
       .eq("id", r.id);
     if (next) {
-      await supabase.rpc("rerun_rule_for_user" as never, { p_rule_id: r.id } as never);
+      await supabase.rpc("rerun_rule_for_user", { p_rule_id: r.id });
     }
   }
 
   async function deleteRule(r: Rule) {
     if (!confirm(`Delete rule "${r.name}"?`)) return;
     const supabase = createClient();
-    await supabase.from("drop_watch_rules" as never).delete().eq("id", r.id);
+    await supabase.from("drop_watch_rules").delete().eq("id", r.id);
     setRules((rs) => rs.filter((x) => x.id !== r.id));
   }
 

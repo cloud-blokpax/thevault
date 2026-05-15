@@ -39,7 +39,7 @@ export default async function CalendarPage() {
   if (profile?.role !== "admin") redirect("/drops");
 
   const { data: entries } = await supabase
-    .from("drop_calendar_entries" as never)
+    .from("drop_calendar_entries")
     .select(
       "id, game, name, set_code, set_name, product_type, release_date, msrp_usd, expected_retailers, source_url, notes, imported_drop_id",
     )
