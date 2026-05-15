@@ -33,7 +33,8 @@ export async function updateSession(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
-  const isAuthRoute = pathname.startsWith("/login");
+  const isLoginRoute = pathname.startsWith("/login");
+  const isAuthFlowRoute = pathname.startsWith("/auth/");
   const isApiAuth = pathname.startsWith("/api/auth");
   const isPublicAsset =
     pathname.startsWith("/_next") ||
@@ -42,14 +43,23 @@ export async function updateSession(request: NextRequest) {
     pathname.startsWith("/icons") ||
     pathname === "/favicon.ico";
 
-  if (!user && !isAuthRoute && !isApiAuth && !isPublicAsset) {
+  if (
+    !user &&
+    !isLoginRoute &&
+    !isAuthFlowRoute &&
+    !isApiAuth &&
+    !isPublicAsset
+  ) {
     const url = request.nextUrl.clone();
     url.pathname = "/login";
     url.searchParams.set("next", pathname);
     return NextResponse.redirect(url);
   }
 
-  if (user && isAuthRoute) {
+  // Signed-in users hitting /login go to dashboard. We intentionally allow
+  // /auth/set-password through so invited users with a fresh session can
+  // finish setting their password.
+  if (user && isLoginRoute) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";
