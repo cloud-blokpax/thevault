@@ -69,53 +69,62 @@ Deno.serve(async (req) => {
       ? `${SITE_URL.replace(/\/$/, "")}/auth/set-password`
       : undefined;
 
-    const inviteMetadata: Record<string, unknown> = {
+    const baseMetadata: Record<string, unknown> = {
       invited_by: user.id,
       invited_at: new Date().toISOString(),
     };
-    if (hasTempPassword) {
-      inviteMetadata.temporary_password = temporaryPassword;
-      inviteMetadata.must_change_password = true;
-      inviteMetadata.password_changed = false;
-    }
 
-    const { data: invited, error: inviteErr } =
-      await adminClient.auth.admin.inviteUserByEmail(email, {
-        data: inviteMetadata,
-        redirectTo,
-      });
-    if (inviteErr || !invited?.user) {
-      return json({ error: inviteErr?.message ?? "Invite failed" }, 400);
-    }
+    let invitedUserId: string;
+    let invitedEmail: string;
 
     if (hasTempPassword) {
-      const { error: pwErr } = await adminClient.auth.admin.updateUserById(
-        invited.user.id,
-        { password: temporaryPassword },
-      );
-      if (pwErr) {
-        return json(
-          {
-            error: "Invite sent but failed to set temporary password: " + pwErr.message,
-            user_id: invited.user.id,
+      // Create the user as already-confirmed so they can sign in immediately
+      // with the temp password. No invitation email is sent — admin shares the
+      // password out-of-band (Slack, SMS, in person).
+      const { data: created, error: createErr } =
+        await adminClient.auth.admin.createUser({
+          email,
+          password: temporaryPassword,
+          email_confirm: true,
+          user_metadata: {
+            ...baseMetadata,
+            temporary_password: temporaryPassword,
+            must_change_password: true,
+            password_changed: false,
           },
-          500,
-        );
+        });
+      if (createErr || !created?.user) {
+        return json({ error: createErr?.message ?? "Create user failed" }, 400);
       }
+      invitedUserId = created.user.id;
+      invitedEmail = created.user.email ?? email;
+    } else {
+      // No temp password: send the standard invite email so the user can pick
+      // their own password via the /auth/confirm -> /auth/set-password flow.
+      const { data: invited, error: inviteErr } =
+        await adminClient.auth.admin.inviteUserByEmail(email, {
+          data: baseMetadata,
+          redirectTo,
+        });
+      if (inviteErr || !invited?.user) {
+        return json({ error: inviteErr?.message ?? "Invite failed" }, 400);
+      }
+      invitedUserId = invited.user.id;
+      invitedEmail = invited.user.email ?? email;
     }
 
     const { error: upsertErr } = await adminClient
       .from("profiles")
       .upsert({
-        id: invited.user.id,
-        email: invited.user.email,
+        id: invitedUserId,
+        email: invitedEmail,
         role,
       });
     if (upsertErr) {
       return json(
         {
-          error: "User invited but role not applied: " + upsertErr.message,
-          user_id: invited.user.id,
+          error: "User created but role not applied: " + upsertErr.message,
+          user_id: invitedUserId,
         },
         500,
       );
@@ -123,8 +132,9 @@ Deno.serve(async (req) => {
 
     return json({
       success: true,
-      user: { id: invited.user.id, email: invited.user.email, role },
+      user: { id: invitedUserId, email: invitedEmail, role },
       temporary_password_set: hasTempPassword,
+      flow: hasTempPassword ? "direct_login" : "email_invite",
     });
   } catch (e) {
     return json({ error: String(e) }, 500);

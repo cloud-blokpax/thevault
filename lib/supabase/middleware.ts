@@ -56,10 +56,21 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
+  // Force users with a temp password to set a new one before doing anything
+  // else. Set-password page is allowed; everything outside /auth/* is not.
+  const mustChangePassword =
+    user?.user_metadata?.must_change_password === true;
+  if (user && mustChangePassword && !isAuthFlowRoute && !isApiAuth) {
+    const url = request.nextUrl.clone();
+    url.pathname = "/auth/set-password";
+    url.search = "";
+    return NextResponse.redirect(url);
+  }
+
   // Signed-in users hitting /login go to dashboard. We intentionally allow
   // /auth/set-password through so invited users with a fresh session can
   // finish setting their password.
-  if (user && isLoginRoute) {
+  if (user && isLoginRoute && !mustChangePassword) {
     const url = request.nextUrl.clone();
     url.pathname = "/dashboard";
     url.search = "";

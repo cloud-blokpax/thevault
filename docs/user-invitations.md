@@ -1,74 +1,81 @@
-# User invitation system
+# User invitation & password reset
 
-Hybrid invite flow: admins send invites from Settings → User management, with
-an optional temporary password. Invited users always land on a password-setup
-page before they can use the app.
+Two ways to onboard a user, plus a self-service password reset.
 
-## Flow
+## Flow A — Admin sets temporary password (recommended)
 
-1. Admin (Settings → User management) submits an email + role. They can
-   optionally check **Set temporary password** and enter / generate one.
-2. The `admin-invite-user` edge function calls
-   `auth.admin.inviteUserByEmail(email, { data, redirectTo })`. If a temporary
-   password was supplied, it is stored in `user_metadata.temporary_password`
-   and also set on the auth user via `auth.admin.updateUserById`.
-3. The invitee receives the standard Supabase invite email. The link points at
-   `/auth/confirm?token_hash=…&type=invite&next=/auth/set-password`.
-4. `/auth/confirm` verifies the OTP, establishes a session, and redirects to
-   `/auth/set-password`.
-5. `/auth/set-password` reads the session and — if there is a temporary
-   password in `user_metadata` — displays it. The user must choose a new
-   password, which clears the temp-password metadata.
+1. Admin opens Settings → User management, enters email + role, checks
+   **Set temporary password**, types or generates one.
+2. `admin-invite-user` calls `auth.admin.createUser({ email, password,
+   email_confirm: true, user_metadata: { must_change_password: true, ... } })`.
+   **No email is sent.** The user is created already-confirmed.
+3. Admin communicates the temp password to the user out-of-band
+   (Slack/SMS/in person).
+4. User goes to `/login`, signs in with email + temp password — works
+   immediately because the email is pre-confirmed.
+5. Middleware sees `user_metadata.must_change_password === true` and
+   redirects any non-auth route to `/auth/set-password`.
+6. User sets a new password; the metadata flag clears; they land on
+   `/dashboard`.
+
+## Flow B — Email invite (user picks their own password)
+
+1. Admin submits email + role with **Set temporary password** unchecked.
+2. `admin-invite-user` calls `auth.admin.inviteUserByEmail(email, { data,
+   redirectTo })`. Supabase sends the standard invite email.
+3. The link goes to `/auth/confirm?token_hash=…&type=invite&next=/auth/set-password`.
+4. `/auth/confirm` verifies the OTP, establishes a session, and redirects
+   to `/auth/set-password`.
+5. User chooses a password; lands on `/dashboard`.
+
+## Flow C — Forgot / reset password (self-service)
+
+1. User clicks **Forgot password?** on `/login`.
+2. `/auth/forgot-password` calls `supabase.auth.resetPasswordForEmail(email,
+   { redirectTo: <site>/auth/reset-password })`.
+3. Supabase sends a recovery email. The link goes to
+   `/auth/confirm?token_hash=…&type=recovery&next=/auth/reset-password`.
+4. `/auth/confirm` verifies the OTP and redirects to `/auth/reset-password`.
+5. User sets a new password; lands on `/dashboard`.
 
 ## Required Supabase configuration
-
-These live in the Supabase dashboard, not in the repo:
 
 ### Authentication → URL Configuration
 
 - **Site URL**: production origin (e.g. `https://yourdomain.com`).
 - **Additional Redirect URLs**:
-  - `http://localhost:3000/auth/confirm`
-  - `http://localhost:3000/auth/set-password`
   - `https://yourdomain.com/auth/confirm`
   - `https://yourdomain.com/auth/set-password`
+  - `https://yourdomain.com/auth/reset-password`
 
-### Authentication → Email Templates → Invite user
+### Authentication → Email Templates
 
-Replace the default link with one that targets our confirm route:
+**Invite user** template:
 
-```html
-<a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/auth/set-password">
-  Accept invitation & set password
-</a>
-```
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=invite&next=/auth/set-password">
+      Accept invitation & set password
+    </a>
+
+**Reset password** template:
+
+    <a href="{{ .SiteURL }}/auth/confirm?token_hash={{ .TokenHash }}&type=recovery&next=/auth/reset-password">
+      Reset your password
+    </a>
 
 ### Edge function env
 
-`admin-invite-user` reads `SITE_URL` (falls back to `NEXT_PUBLIC_SITE_URL`) to
-build the `redirectTo`. Set one of those in the function's secrets, e.g.
+`admin-invite-user` reads `SITE_URL` (falls back to `NEXT_PUBLIC_SITE_URL`).
+Only needed for Flow B (email invites). Set it via:
 
-```bash
-supabase secrets set SITE_URL=https://yourdomain.com
-```
-
-## Local environment
-
-Add to `.env.local`:
-
-```bash
-NEXT_PUBLIC_SUPABASE_URL=...
-NEXT_PUBLIC_SUPABASE_ANON_KEY=...
-NEXT_PUBLIC_SITE_URL=http://localhost:3000
-```
-
-The service-role key only needs to live in the edge function's secrets —
-never in `NEXT_PUBLIC_*` vars.
+    supabase secrets set SITE_URL=https://yourdomain.com
 
 ## Notes
 
-- The `on_auth_user_created` trigger creates a `profiles` row automatically;
-  `admin-invite-user` then upserts the chosen role.
+- `on_auth_user_created` creates the `profiles` row automatically;
+  `admin-invite-user` upserts the role afterward.
 - Middleware allows `/auth/*` and `/login` for unauthenticated users so the
-  invite link can complete the flow.
-- The set-password page rejects reusing the temporary password.
+  reset/invite links can complete.
+- The set-password page rejects reusing the displayed temporary password.
+- For Flow A, `email_confirm: true` is what unblocks immediate login —
+  `inviteUserByEmail` does NOT pre-confirm the email, which is why setting
+  a password on an invited user previously appeared "not to work."
