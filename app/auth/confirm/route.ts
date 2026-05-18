@@ -8,13 +8,17 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url);
   const token_hash = searchParams.get("token_hash");
   const type = searchParams.get("type") as EmailOtpType | null;
-  const next = searchParams.get("next") || "/auth/set-password";
+
+  // Pick a smart default based on the OTP type if `next` isn't explicit.
+  const explicitNext = searchParams.get("next");
+  const defaultNext =
+    type === "recovery" ? "/auth/reset-password" : "/auth/set-password";
+  const next = explicitNext || defaultNext;
 
   if (!token_hash || !type) {
     return NextResponse.redirect(
       new URL(
-        "/auth/error?message=" +
-          encodeURIComponent("Invalid invitation link"),
+        "/auth/error?message=" + encodeURIComponent("Invalid link"),
         request.url,
       ),
     );
