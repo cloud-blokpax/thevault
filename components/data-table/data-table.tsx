@@ -370,7 +370,9 @@ export function DataTable<T>({
                                 setEditing({ rowKey: rid, columnId: col.id });
                               }}
                               className={cn(
-                                "w-full cursor-text rounded px-1 py-0.5 text-left hover:bg-accent/60",
+                                "w-full rounded px-1 py-0.5 text-left",
+                                "cursor-text border border-dashed border-transparent",
+                                "hover:border-muted-foreground/30 hover:bg-accent/30",
                                 col.align === "right" && "text-right",
                               )}
                             >
