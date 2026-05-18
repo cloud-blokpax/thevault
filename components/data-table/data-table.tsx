@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { ArrowDown, ArrowUp, ArrowUpDown, Settings2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -24,6 +24,11 @@ type Props<T> = {
   onRowClick?: (row: T) => void;
   empty?: React.ReactNode;
   loading?: boolean;
+  selectable?: boolean;
+  selectedIds?: string[];
+  onSelectionChange?: (ids: string[]) => void;
+  rowActions?: (row: T) => React.ReactNode;
+  onCellEdit?: (row: T, payload: Record<string, unknown>) => Promise<void>;
 };
 
 export function DataTable<T>({
@@ -37,6 +42,11 @@ export function DataTable<T>({
   onRowClick,
   empty,
   loading,
+  selectable,
+  selectedIds,
+  onSelectionChange,
+  rowActions,
+  onCellEdit,
 }: Props<T>) {
   const visibleColumns = useMemo(() => {
     const byId = new Map(columns.map((c) => [c.id, c]));
@@ -71,6 +81,8 @@ export function DataTable<T>({
     });
   }, [filtered, state.sort, columns]);
 
+  const sortedRowIds = useMemo(() => sorted.map(rowKey), [sorted, rowKey]);
+
   function setFilter(columnId: string, value: FilterValue | undefined) {
     const next: FilterMap = { ...state.filters };
     if (value == null) delete next[columnId];
@@ -92,6 +104,42 @@ export function DataTable<T>({
   }
 
   const activeFilters = Object.entries(state.filters);
+
+  const selection = useMemo(() => selectedIds ?? [], [selectedIds]);
+  const visibleSelectedCount = useMemo(
+    () => sortedRowIds.filter((id) => selection.includes(id)).length,
+    [sortedRowIds, selection],
+  );
+  const allVisibleSelected =
+    sortedRowIds.length > 0 && visibleSelectedCount === sortedRowIds.length;
+  const someVisibleSelected =
+    visibleSelectedCount > 0 && visibleSelectedCount < sortedRowIds.length;
+
+  const headerCheckboxRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (headerCheckboxRef.current) {
+      headerCheckboxRef.current.indeterminate = someVisibleSelected;
+    }
+  }, [someVisibleSelected]);
+
+  function toggleAllVisible(checked: boolean) {
+    if (!onSelectionChange) return;
+    if (checked) {
+      onSelectionChange(Array.from(new Set([...selection, ...sortedRowIds])));
+    } else {
+      const visible = new Set(sortedRowIds);
+      onSelectionChange(selection.filter((id) => !visible.has(id)));
+    }
+  }
+
+  const [editing, setEditing] = useState<{
+    rowKey: string;
+    columnId: string;
+  } | null>(null);
+  const [savingCell, setSavingCell] = useState<string | null>(null);
+
+  const totalCols =
+    visibleColumns.length + (selectable ? 1 : 0) + (rowActions ? 1 : 0);
 
   return (
     <div className="space-y-2">
@@ -153,6 +201,17 @@ export function DataTable<T>({
         <table className="w-full text-sm">
           <thead className="bg-muted/50 text-left text-xs uppercase tracking-wide text-muted-foreground">
             <tr>
+              {selectable && (
+                <th className="w-8 px-3 py-2 align-middle">
+                  <input
+                    ref={headerCheckboxRef}
+                    type="checkbox"
+                    aria-label="Select all visible rows"
+                    checked={allVisibleSelected}
+                    onChange={(e) => toggleAllVisible(e.target.checked)}
+                  />
+                </th>
+              )}
               {visibleColumns.map((col) => {
                 const sort = state.sort?.columnId === col.id ? state.sort : null;
                 return (
@@ -195,13 +254,14 @@ export function DataTable<T>({
                   </th>
                 );
               })}
+              {rowActions && <th className="w-10 px-2 py-2" />}
             </tr>
           </thead>
           <tbody className="divide-y">
             {loading ? (
               <tr>
                 <td
-                  colSpan={visibleColumns.length}
+                  colSpan={totalCols}
                   className="px-3 py-6 text-center text-muted-foreground"
                 >
                   Loading…
@@ -210,40 +270,275 @@ export function DataTable<T>({
             ) : sorted.length === 0 ? (
               <tr>
                 <td
-                  colSpan={visibleColumns.length}
+                  colSpan={totalCols}
                   className="px-3 py-6 text-center text-muted-foreground"
                 >
                   {empty ?? "No rows match."}
                 </td>
               </tr>
             ) : (
-              sorted.map((row) => (
-                <tr
-                  key={rowKey(row)}
-                  onClick={() => onRowClick?.(row)}
-                  className={cn(
-                    "hover:bg-accent/40",
-                    onRowClick && "cursor-pointer",
-                  )}
-                >
-                  {visibleColumns.map((col) => (
-                    <td
-                      key={col.id}
-                      className={cn(
+              sorted.map((row) => {
+                const rid = rowKey(row);
+                const isSelected = selection.includes(rid);
+                return (
+                  <tr
+                    key={rid}
+                    onClick={() => onRowClick?.(row)}
+                    className={cn(
+                      "hover:bg-accent/40",
+                      onRowClick && "cursor-pointer",
+                      isSelected && "bg-accent/30",
+                    )}
+                  >
+                    {selectable && (
+                      <td
+                        className="w-8 px-3 align-middle"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <input
+                          type="checkbox"
+                          aria-label="Select row"
+                          checked={isSelected}
+                          onChange={(e) => {
+                            if (!onSelectionChange) return;
+                            const next = e.target.checked
+                              ? Array.from(new Set([...selection, rid]))
+                              : selection.filter((x) => x !== rid);
+                            onSelectionChange(next);
+                          }}
+                        />
+                      </td>
+                    )}
+                    {visibleColumns.map((col) => {
+                      const cellId = `${rid}:${col.id}`;
+                      const isEditing =
+                        editing?.rowKey === rid && editing.columnId === col.id;
+                      const isSaving = savingCell === cellId;
+                      const canEdit = !!col.editable && !!onCellEdit;
+
+                      const tdClass = cn(
                         "px-3 py-2 align-middle",
                         col.align === "right" && "text-right tabular-nums",
-                      )}
-                    >
-                      {col.render ? col.render(row) : defaultCell(col.accessor(row))}
-                    </td>
-                  ))}
-                </tr>
-              ))
+                        isSaving && "opacity-50",
+                      );
+
+                      if (isEditing && col.editable) {
+                        const initial =
+                          col.editable.initialValue?.(row) ??
+                          String(col.accessor(row) ?? "");
+                        return (
+                          <td
+                            key={col.id}
+                            className={tdClass}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <InlineEditor
+                              config={col.editable}
+                              initial={initial}
+                              align={col.align}
+                              onCancel={() => setEditing(null)}
+                              onCommit={async (raw) => {
+                                const payload = col.editable!.toUpdate(row, raw);
+                                if (payload === null) return false;
+                                setSavingCell(cellId);
+                                try {
+                                  await onCellEdit!(row, payload);
+                                  setEditing(null);
+                                  return true;
+                                } catch {
+                                  return false;
+                                } finally {
+                                  setSavingCell(null);
+                                }
+                              }}
+                            />
+                          </td>
+                        );
+                      }
+
+                      const cellContent = col.render
+                        ? col.render(row)
+                        : defaultCell(col.accessor(row));
+
+                      if (canEdit) {
+                        return (
+                          <td key={col.id} className={tdClass}>
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setEditing({ rowKey: rid, columnId: col.id });
+                              }}
+                              className={cn(
+                                "w-full cursor-text rounded px-1 py-0.5 text-left hover:bg-accent/60",
+                                col.align === "right" && "text-right",
+                              )}
+                            >
+                              {cellContent}
+                            </button>
+                          </td>
+                        );
+                      }
+
+                      return (
+                        <td key={col.id} className={tdClass}>
+                          {cellContent}
+                        </td>
+                      );
+                    })}
+                    {rowActions && (
+                      <td
+                        className="w-10 px-2 text-right align-middle"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {rowActions(row)}
+                      </td>
+                    )}
+                  </tr>
+                );
+              })
             )}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+type InlineEditorProps<T> = {
+  config: NonNullable<ColumnDef<T>["editable"]>;
+  initial: string;
+  align?: "left" | "right";
+  onCancel: () => void;
+  onCommit: (raw: string) => Promise<boolean>;
+};
+
+function InlineEditor<T>({
+  config,
+  initial,
+  align,
+  onCancel,
+  onCommit,
+}: InlineEditorProps<T>) {
+  const [value, setValue] = useState(initial);
+  const [committing, setCommitting] = useState(false);
+  const inputRef = useRef<
+    HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
+  >(null);
+
+  useEffect(() => {
+    inputRef.current?.focus();
+    if (inputRef.current && "select" in inputRef.current) {
+      try {
+        (inputRef.current as HTMLInputElement).select();
+      } catch {
+        /* no-op */
+      }
+    }
+  }, []);
+
+  async function commit(next: string) {
+    if (committing) return;
+    setCommitting(true);
+    try {
+      await onCommit(next);
+    } finally {
+      setCommitting(false);
+    }
+  }
+
+  const baseInput =
+    "min-w-[80px] w-full rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-ring";
+
+  if (config.type === "enum") {
+    const opts = config.enumOptions ?? [];
+    return (
+      <select
+        ref={(el) => {
+          inputRef.current = el;
+        }}
+        className={cn(baseInput, align === "right" && "text-right")}
+        value={value}
+        disabled={committing}
+        onChange={(e) => {
+          const next = e.target.value;
+          setValue(next);
+          void commit(next);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+          }
+        }}
+        onBlur={() => {
+          if (!committing) onCancel();
+        }}
+      >
+        {opts.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  if (config.type === "textarea") {
+    return (
+      <textarea
+        ref={(el) => {
+          inputRef.current = el;
+        }}
+        className={cn(baseInput, "min-h-[60px] resize-y")}
+        value={value}
+        disabled={committing}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape") {
+            e.preventDefault();
+            onCancel();
+            return;
+          }
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            void commit(value);
+          }
+        }}
+        onBlur={() => {
+          if (!committing) void commit(value);
+        }}
+      />
+    );
+  }
+
+  return (
+    <input
+      ref={(el) => {
+        inputRef.current = el;
+      }}
+      type={config.type === "number" ? "number" : "text"}
+      inputMode={config.type === "number" ? "decimal" : undefined}
+      step={config.type === "number" ? "any" : undefined}
+      className={cn(baseInput, align === "right" && "text-right")}
+      value={value}
+      disabled={committing}
+      onChange={(e) => setValue(e.target.value)}
+      onKeyDown={(e) => {
+        if (e.key === "Escape") {
+          e.preventDefault();
+          onCancel();
+          return;
+        }
+        if (e.key === "Enter") {
+          e.preventDefault();
+          void commit(value);
+        }
+      }}
+      onBlur={() => {
+        if (!committing) void commit(value);
+      }}
+    />
   );
 }
 
