@@ -2,8 +2,9 @@
 
 import { useMemo, useState } from "react";
 import Link from "next/link";
-import { useQuery } from "@tanstack/react-query";
-import { Plus, Search } from "lucide-react";
+import * as Dialog from "@radix-ui/react-dialog";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -18,6 +19,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { InventoryItemModal } from "@/components/inventory-item-modal";
 import { DataTable } from "@/components/data-table/data-table";
+import { BulkActionsBar } from "@/components/data-table/bulk-actions-bar";
 import { ColumnPicker } from "@/components/data-table/column-picker";
 import { usePersistedPreference } from "@/components/data-table/use-persisted-state";
 import type { ColumnDef, TableState } from "@/components/data-table/types";
@@ -102,12 +104,19 @@ const DEFAULT_TABLE_STATE: TableState = {
 };
 
 export default function InventoryPage() {
+  const qc = useQueryClient();
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] =
     useState<(typeof STATUS_OPTIONS)[number]>("all");
   const [game, setGame] = useState<(typeof GAME_OPTIONS)[number]>("all");
   const [editingId, setEditingId] = useState<string | null>(null);
   const [columnPickerOpen, setColumnPickerOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { kind: "single"; id: string; label: string }
+    | { kind: "bulk"; ids: string[] }
+    | null
+  >(null);
 
   const [tableState, setTableState] = usePersistedPreference<TableState>(
     TABLE_STATE_KEY,
@@ -174,6 +183,85 @@ export default function InventoryPage() {
   });
 
   const todaysFx = fxQuery.data;
+
+  const del = useMutation({
+    mutationFn: async (ids: string[]) => {
+      if (ids.length === 0) return;
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("inventory_items")
+        .delete()
+        .in("id", ids);
+      if (error) throw error;
+    },
+    onMutate: async (ids) => {
+      await qc.cancelQueries({ queryKey: ["inventory"] });
+      const previous = qc.getQueryData<Row[]>([
+        "inventory",
+        { statusFilter, game },
+      ]);
+      qc.setQueryData<Row[]>(
+        ["inventory", { statusFilter, game }],
+        (old) => (old ?? []).filter((r) => !ids.includes(r.id)),
+      );
+      return { previous };
+    },
+    onError: (_err, _ids, ctx) => {
+      if (ctx?.previous) {
+        qc.setQueryData(["inventory", { statusFilter, game }], ctx.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+
+  const updateCell = useMutation({
+    mutationFn: async ({
+      id,
+      payload,
+    }: {
+      id: string;
+      payload: Record<string, unknown>;
+    }) => {
+      const supabase = createClient();
+      const { error } = await supabase
+        .from("inventory_items")
+        .update(payload as never)
+        .eq("id", id);
+      if (error) throw error;
+    },
+    onMutate: async ({ id, payload }) => {
+      await qc.cancelQueries({ queryKey: ["inventory"] });
+      const previous = qc.getQueryData<Row[]>([
+        "inventory",
+        { statusFilter, game },
+      ]);
+      qc.setQueryData<Row[]>(
+        ["inventory", { statusFilter, game }],
+        (old) =>
+          (old ?? []).map((r) =>
+            r.id === id ? ({ ...r, ...payload } as Row) : r,
+          ),
+      );
+      return { previous };
+    },
+    onError: (_e, _v, ctx) => {
+      if (ctx?.previous) {
+        qc.setQueryData(["inventory", { statusFilter, game }], ctx.previous);
+      }
+    },
+    onSettled: () => {
+      qc.invalidateQueries({ queryKey: ["inventory"] });
+    },
+  });
+
+  const handleCellEdit = async (
+    row: Row,
+    payload: Record<string, unknown>,
+  ) => {
+    await updateCell.mutateAsync({ id: row.id, payload });
+  };
 
   const filteredRows = useMemo(() => {
     if (!data) return [];
@@ -269,40 +357,58 @@ export default function InventoryPage() {
           <p className="text-sm text-muted-foreground">No items match.</p>
         ) : (
           filteredRows.map((row) => (
-            <button
+            <div
               key={row.id}
-              type="button"
-              onClick={() => setEditingId(row.id)}
-              className="block w-full rounded-lg border bg-card p-3 text-left active:bg-accent"
+              className="relative rounded-lg border bg-card active:bg-accent"
             >
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate text-sm font-medium">
-                    {row.cards?.canonical_name ?? "Unknown"}
-                    {row.is_foil && (
-                      <span className="ml-1 text-amber-600">★</span>
-                    )}
-                  </p>
-                  <p className="truncate text-xs text-muted-foreground">
-                    {row.cards?.set_name ?? titleCase(row.cards?.game)}
-                  </p>
+              <button
+                type="button"
+                onClick={() => setEditingId(row.id)}
+                className="block w-full p-3 pr-10 text-left"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">
+                      {row.cards?.canonical_name ?? "Unknown"}
+                      {row.is_foil && (
+                        <span className="ml-1 text-amber-600">★</span>
+                      )}
+                    </p>
+                    <p className="truncate text-xs text-muted-foreground">
+                      {row.cards?.set_name ?? titleCase(row.cards?.game)}
+                    </p>
+                  </div>
+                  <StatusBadge status={row.status} />
                 </div>
-                <StatusBadge status={row.status} />
-              </div>
-              <div className="mt-2 flex items-center justify-between text-xs">
-                <span className="text-muted-foreground">
-                  Buy {formatCurrency(row.buy_cost_local, row.buy_currency)}
-                </span>
-                {row.listed_price != null && (
-                  <span className="font-medium">
-                    {formatCurrency(
-                      row.listed_price,
-                      row.sell_currency ?? "EUR",
-                    )}
+                <div className="mt-2 flex items-center justify-between text-xs">
+                  <span className="text-muted-foreground">
+                    Buy {formatCurrency(row.buy_cost_local, row.buy_currency)}
                   </span>
-                )}
-              </div>
-            </button>
+                  {row.listed_price != null && (
+                    <span className="font-medium">
+                      {formatCurrency(
+                        row.listed_price,
+                        row.sell_currency ?? "EUR",
+                      )}
+                    </span>
+                  )}
+                </div>
+              </button>
+              <button
+                type="button"
+                aria-label="Delete row"
+                onClick={() =>
+                  setDeleteTarget({
+                    kind: "single",
+                    id: row.id,
+                    label: row.cards?.canonical_name ?? "this item",
+                  })
+                }
+                className="absolute right-2 top-2 rounded p-1.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           ))
         )}
       </div>
@@ -314,6 +420,23 @@ export default function InventoryPage() {
 
       {/* Desktop sortable/filterable table */}
       <div className="hidden md:block">
+        <BulkActionsBar
+          count={selectedIds.length}
+          onClear={() => setSelectedIds([])}
+          actions={
+            <Button
+              type="button"
+              variant="destructive"
+              size="sm"
+              onClick={() =>
+                setDeleteTarget({ kind: "bulk", ids: selectedIds })
+              }
+            >
+              <Trash2 className="mr-1 h-4 w-4" />
+              Delete {selectedIds.length}
+            </Button>
+          }
+        />
         <DataTable<Row>
           columns={columns}
           rows={filteredRows}
@@ -323,10 +446,89 @@ export default function InventoryPage() {
           onColumnsClick={() => setColumnPickerOpen(true)}
           rowKey={(r) => r.id}
           onRowClick={(r) => setEditingId(r.id)}
+          selectable
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
+          onCellEdit={handleCellEdit}
+          rowActions={(r) => (
+            <button
+              type="button"
+              aria-label="Delete row"
+              onClick={() =>
+                setDeleteTarget({
+                  kind: "single",
+                  id: r.id,
+                  label: r.cards?.canonical_name ?? "this item",
+                })
+              }
+              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          )}
           loading={isLoading}
           empty="No items match."
         />
       </div>
+
+      <Dialog.Root
+        open={deleteTarget !== null}
+        onOpenChange={(v) => !v && setDeleteTarget(null)}
+      >
+        <Dialog.Portal>
+          <Dialog.Overlay className="fixed inset-0 z-40 bg-black/40 backdrop-blur-sm" />
+          <Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[90vw] max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg border bg-background p-4 shadow-lg">
+            <Dialog.Title className="text-base font-semibold">
+              {deleteTarget?.kind === "bulk"
+                ? `Delete ${deleteTarget.ids.length} items?`
+                : `Delete ${deleteTarget?.kind === "single" ? deleteTarget.label : "item"}?`}
+            </Dialog.Title>
+            <Dialog.Description className="mt-1 text-xs text-muted-foreground">
+              This permanently removes the inventory row. Card catalog data is
+              not affected.
+            </Dialog.Description>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setDeleteTarget(null)}
+                disabled={del.isPending}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={del.isPending}
+                onClick={async () => {
+                  const ids =
+                    deleteTarget?.kind === "bulk"
+                      ? deleteTarget.ids
+                      : deleteTarget?.kind === "single"
+                        ? [deleteTarget.id]
+                        : [];
+                  try {
+                    await del.mutateAsync(ids);
+                    setSelectedIds((prev) =>
+                      prev.filter((x) => !ids.includes(x)),
+                    );
+                    setDeleteTarget(null);
+                  } catch {
+                    /* error already in mutation state */
+                  }
+                }}
+              >
+                {del.isPending ? "Deleting…" : "Delete"}
+              </Button>
+            </div>
+            {del.error && (
+              <p role="alert" className="mt-2 text-xs text-destructive">
+                {(del.error as Error).message}
+              </p>
+            )}
+          </Dialog.Content>
+        </Dialog.Portal>
+      </Dialog.Root>
 
       <ColumnPicker
         open={columnPickerOpen}
@@ -407,6 +609,14 @@ function buildColumns(
         label: titleCase(s as string),
       })),
       render: (r) => <StatusBadge status={r.status} />,
+      editable: {
+        type: "enum",
+        enumOptions: STATUS_OPTIONS.filter((s) => s !== "all").map((s) => ({
+          value: s as string,
+          label: titleCase(s as string),
+        })),
+        toUpdate: (_row, raw) => (raw ? { status: raw } : null),
+      },
     },
     {
       id: "buy_cost",
@@ -436,6 +646,20 @@ function buildColumns(
         r.listed_price != null
           ? formatCurrency(r.listed_price, r.sell_currency ?? "EUR")
           : "—",
+      editable: {
+        type: "number",
+        initialValue: (r) =>
+          r.listed_price != null ? String(r.listed_price) : "",
+        toUpdate: (row, raw) => {
+          const trimmed = raw.trim();
+          if (trimmed === "") return { listed_price: null };
+          const n = Number(trimmed);
+          if (Number.isNaN(n)) return null;
+          const payload: Record<string, unknown> = { listed_price: n };
+          if (!row.sell_currency) payload.sell_currency = "EUR";
+          return payload;
+        },
+      },
     },
     {
       id: "sold_price",
@@ -447,6 +671,20 @@ function buildColumns(
         r.sold_price != null
           ? formatCurrency(r.sold_price, r.sell_currency ?? "EUR")
           : "—",
+      editable: {
+        type: "number",
+        initialValue: (r) =>
+          r.sold_price != null ? String(r.sold_price) : "",
+        toUpdate: (row, raw) => {
+          const trimmed = raw.trim();
+          if (trimmed === "") return { sold_price: null };
+          const n = Number(trimmed);
+          if (Number.isNaN(n)) return null;
+          const payload: Record<string, unknown> = { sold_price: n };
+          if (!row.sell_currency) payload.sell_currency = "EUR";
+          return payload;
+        },
+      },
     },
     {
       id: "sold_at",
@@ -460,6 +698,13 @@ function buildColumns(
       label: "Sold to",
       type: "text",
       accessor: (r) => r.sold_to,
+      editable: {
+        type: "text",
+        initialValue: (r) => r.sold_to ?? "",
+        toUpdate: (_row, raw) => ({
+          sold_to: raw.trim() === "" ? null : raw.trim(),
+        }),
+      },
     },
     {
       id: "bought_on",
@@ -556,6 +801,11 @@ function buildColumns(
         ) : (
           "—"
         ),
+      editable: {
+        type: "textarea",
+        initialValue: (r) => r.notes ?? "",
+        toUpdate: (_row, raw) => ({ notes: raw === "" ? null : raw }),
+      },
     },
     {
       id: "updated_at",

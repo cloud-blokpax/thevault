@@ -13,6 +13,17 @@ export type FilterValue =
 
 export type FilterMap = Record<string, FilterValue>;
 
+export type EditableConfig<T> = {
+  type: "text" | "number" | "enum" | "textarea";
+  enumOptions?: { value: string; label: string }[];
+  /**
+   * Returns the partial update payload to send to the parent. Return `null`
+   * to signal an invalid edit (cell stays in edit mode for retry).
+   */
+  toUpdate: (row: T, raw: string) => Record<string, unknown> | null;
+  initialValue?: (row: T) => string;
+};
+
 export type ColumnDef<T> = {
   id: string;
   label: string;
@@ -25,9 +36,11 @@ export type ColumnDef<T> = {
   width?: string;
   /** Allow this column to be hidden via the column picker. Defaults to true. */
   hideable?: boolean;
+  editable?: EditableConfig<T>;
 };
 
 export type TableState = {
   sort: SortState;
   filters: FilterMap;
+  selectedIds?: string[];
 };

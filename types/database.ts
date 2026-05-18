@@ -783,7 +783,7 @@ export type Database = {
           target_market?: string | null
           trip_id?: string | null
           updated_at?: string
-          user_id: string
+          user_id?: string
           visibility_buyer?: boolean
         }
         Update: {
@@ -1270,7 +1270,7 @@ export type Database = {
           started_at?: string | null
           travel_cost_local?: number | null
           travel_currency?: Database["public"]["Enums"]["currency_code"] | null
-          user_id: string
+          user_id?: string
         }
         Update: {
           allocation_method?: string

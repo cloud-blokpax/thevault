@@ -52,13 +52,8 @@ export default function NewTripPage() {
     mutationFn: async () => {
       if (!label.trim()) throw new Error("Label is required.");
       const supabase = createClient();
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) throw new Error("Not signed in.");
       const trimmedLabel = label.trim();
       const payload = {
-        user_id: user.id,
         name: trimmedLabel,
         label: trimmedLabel,
         direction,
