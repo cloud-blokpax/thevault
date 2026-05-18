@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import Link from "next/link";
 import * as Dialog from "@radix-ui/react-dialog";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Search, Trash2 } from "lucide-react";
+import { Pencil, Plus, Search, Trash2 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -424,17 +424,33 @@ export default function InventoryPage() {
           count={selectedIds.length}
           onClear={() => setSelectedIds([])}
           actions={
-            <Button
-              type="button"
-              variant="destructive"
-              size="sm"
-              onClick={() =>
-                setDeleteTarget({ kind: "bulk", ids: selectedIds })
-              }
-            >
-              <Trash2 className="mr-1 h-4 w-4" />
-              Delete {selectedIds.length}
-            </Button>
+            <>
+              {selectedIds.length === 1 && (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    setEditingId(selectedIds[0]);
+                    setSelectedIds([]);
+                  }}
+                >
+                  <Pencil className="mr-1 h-4 w-4" />
+                  Edit
+                </Button>
+              )}
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                onClick={() =>
+                  setDeleteTarget({ kind: "bulk", ids: selectedIds })
+                }
+              >
+                <Trash2 className="mr-1 h-4 w-4" />
+                Delete {selectedIds.length}
+              </Button>
+            </>
           }
         />
         <DataTable<Row>
@@ -451,20 +467,30 @@ export default function InventoryPage() {
           onSelectionChange={setSelectedIds}
           onCellEdit={handleCellEdit}
           rowActions={(r) => (
-            <button
-              type="button"
-              aria-label="Delete row"
-              onClick={() =>
-                setDeleteTarget({
-                  kind: "single",
-                  id: r.id,
-                  label: r.cards?.canonical_name ?? "this item",
-                })
-              }
-              className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
-            >
-              <Trash2 className="h-4 w-4" />
-            </button>
+            <div className="flex items-center justify-end gap-0.5">
+              <button
+                type="button"
+                aria-label="Edit row"
+                onClick={() => setEditingId(r.id)}
+                className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+              >
+                <Pencil className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                aria-label="Delete row"
+                onClick={() =>
+                  setDeleteTarget({
+                    kind: "single",
+                    id: r.id,
+                    label: r.cards?.canonical_name ?? "this item",
+                  })
+                }
+                className="rounded p-1 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+              >
+                <Trash2 className="h-4 w-4" />
+              </button>
+            </div>
           )}
           loading={isLoading}
           empty="No items match."
